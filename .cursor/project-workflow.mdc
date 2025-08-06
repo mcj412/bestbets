@@ -1,0 +1,231 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Project Workflow Rules
+
+- This file (.cursor/project-workflow.mdc) is the canonical source for all project rules.
+- ALWAYS read and follow the rules in this file before taking any project action or making changes.
+- ALWAYS update this file with any new or changed rules, and ensure it is kept up to date.
+
+# Workspace Navigation Rule
+
+- The project has two primary workspaces:
+  1. `front_endY/` - Main project workspace containing all source code and documentation
+  2. `Development_Area/` - Development tools workspace containing all scripts, watchers, and logs
+- NEVER mix files between these workspaces
+- ALWAYS verify the current working directory before performing any file operations
+- When using absolute paths:
+  - For project files: Use paths from `FILE_STRUCTURE.md`
+  - For development tools: Use paths relative to `Development_Area/`
+- NEVER use relative paths without first confirming the current working directory
+
+# Documentation Hierarchy Rule
+
+- The project documentation follows a strict hierarchy:
+  1. `project-workflow.mdc` - Primary source for all workflow and process rules
+  2. `GUIDE.md` - Main user/developer guide and workflow documentation
+  3. `FILE_STRUCTURE.md` - Current state of project structure
+  4. `LINK_STRUCTURE.md` - Domain and routing documentation
+  5. `PROJECT_TODO.md` - Current project status and next steps
+  6. `README.md` - Quick start and basic project information
+  7. `CUSTOM_STACK_GUIDE.md` - Technical stack documentation
+  8. `AI_COLLABORATION.md` - Shared workspace for AI assistants to document findings and coordinate efforts
+- ALWAYS consult these documents in order when making decisions or changes
+- ALWAYS keep all documentation files in sync with each other
+- When updating any documentation:
+  - Check for impacts on other documentation files
+  - Update all affected files in the same change
+  - Maintain consistency across all documentation
+
+# File Structure Rule
+
+- ALWAYS consult `FILE_STRUCTURE.md` before any file operations
+- NEVER assume a file location without checking `FILE_STRUCTURE.md`
+- ALWAYS verify file paths against `FILE_STRUCTURE.md` before using them
+- UPDATE `FILE_STRUCTURE.md` immediately after creating, deleting, or moving any file or folder
+- The file structure file should reflect the current state of the project's directories and files
+- This is the responsibility of the developer or agent making the change
+- When editing files, ALWAYS use the exact paths as shown in `FILE_STRUCTURE.md`
+- Before any file operation:
+  1. First check `FILE_STRUCTURE.md`
+  2. Then verify the file exists at the specified path
+  3. Only then proceed with the operation
+- If a file cannot be found:
+  1. Double-check `FILE_STRUCTURE.md`
+  2. Verify the current working directory
+  3. Report the discrepancy if the file should exist but doesn't
+
+# Error Handling Rule
+
+- When encountering errors or issues:
+  1. ALWAYS check the current working directory first
+  2. Verify paths against `FILE_STRUCTURE.md`
+  3. Check relevant log files in `Development_Area/`
+  4. Report specific error details and context
+- For file not found errors:
+  1. Check if the file exists in `FILE_STRUCTURE.md`
+  2. Verify absolute vs relative path usage
+  3. Confirm working directory context
+- Never proceed with operations when encountering errors without:
+  1. Understanding the root cause
+  2. Documenting the issue
+  3. Having a clear fix strategy
+
+# Development Tools Rule
+
+- All development tools, scripts, and watchers must be stored in the `Development_Area` directory
+- All log files from development tools must be stored in the `Development_Area` directory
+- Development tools must not write logs or temporary files to the main project directory
+- Development tools must use absolute paths when targeting project files, but store their own files locally
+- The `Development_Area` directory is for development tooling only and should not contain project source code
+- When creating or modifying development tools:
+  1. Use absolute paths for project file operations
+  2. Keep all logs and temporary files in `Development_Area/`
+  3. Include clear error handling and logging
+  4. Document the tool's purpose and usage
+
+# Link Structure Rule
+
+- ALWAYS maintain an up-to-date `LINK_STRUCTURE.md` in the project root to document domain, folder, and frame routing plans.
+- ENS, IPFS, and IPNS integration must follow the structure and conventions described in `LINK_STRUCTURE.md`.
+- Deploy scripts must reference and enforce the link structure to ensure correct resolution and stable frame URLs.
+
+# AI Collaboration Rule
+
+- ALL AI assistants must use `AI_COLLABORATION.md` for coordinating work and sharing findings
+- BEFORE starting any major task:
+  1. Check `AI_COLLABORATION.md` for current focus areas
+  2. Document planned work in the file
+  3. Update relevant sections with findings
+- DURING work:
+  1. Update progress in real-time
+  2. Document any issues or blockers
+  3. Share insights and solutions
+- AFTER completing work:
+  1. Document results and conclusions
+  2. Update timeline with completion
+  3. Add any new discussion points
+- NEVER make major changes without checking current work in `AI_COLLABORATION.md`
+- ALWAYS maintain accurate and up-to-date information in the file
+
+# Watcher Workflow Rule
+
+- ALWAYS ENSURE the Git watcher script is running before making any changes to the codebase.
+- IF the watcher is not running, start it using the provided PowerShell script in `Development_Area/`
+- IF the watcher fails or stops, check the logs in `Development_Area/` and restart it.
+- DO NOT make project changes unless the watcher is confirmed running.
+- The watcher must auto-commit all file changes to Git with timestamped messages.
+
+# Collaboration Rule
+
+- AI agents should prioritize direct action and concise communication in chat.
+- When a user makes a suggestion or request, the agent should proceed with the requested action, providing only brief context or confirmation in chat.
+- When suggesting multi-step actions, always provide a numbered list so the user can reply with a number to select the next step.
+- The user will review and confirm edits as needed.
+- If a user points out a repeated or unresolved issue, the agent must slow down, carefully analyze the root cause, and only make a change after a thorough review. Avoid repeating failed fixes and prioritize reliability over speed.
+
+# Script Monitoring Rule
+
+- AI agents must always monitor the output and status of any script or command they run.
+- If a script or command fails or produces an error, the agent must proactively handle or report the issue without waiting for user input.
+- The agent should confirm successful execution before proceeding to the next step.
+
+# Production Quality Rule
+
+- This project is intended for production use. Do NOT use example, filler, or demo code in any part of the codebase.
+- If a feature or component needs to be implemented, always provide a real, production-ready solution.
+- Avoid placeholders; flesh out all logic and components as needed for a complete, robust product.
+
+# Project TODO Rule
+
+- ALWAYS maintain an up-to-date `PROJECT_TODO.md` in the project root to document the project goal, current focus, current step, and next steps.
+- UPDATE `PROJECT_TODO.md` immediately after any major project change, decision, or shift in focus.
+- This file is a living document to keep the team and AI agents aligned on project direction and status.
+
+# README Maintenance Rule
+
+- ALWAYS keep `README.md` up to date with all setup, workflow, and automation steps.
+- UPDATE `README.md` after installing new tools, changing workflow, or making major project changes.
+- The README should be clear and replicable for new users and contributors.
+
+# Decentralization and IPFS Rule
+
+- This project is built for fully decentralized deployment on IPFS
+- ALL code changes and features must consider IPFS compatibility:
+  1. No server-side dependencies or processing
+  2. All assets must be static and IPFS-compatible
+  3. All links must use IPFS-compatible paths
+  4. Frame navigation must work in IPFS context
+- When making changes:
+  1. Verify all assets are included in IPFS deployment
+  2. Ensure all paths work with IPFS gateways
+  3. Test functionality through IPFS gateways
+  4. Consider IPNS for mutable content
+
+# IPFS Path Handling Rule
+
+- ALL file paths in IPFS deployments must maintain their exact directory structure
+- When deploying files:
+  1. Preserve directory hierarchy (e.g., 'src/main.js' must keep its 'src/' prefix)
+  2. Use relative paths from IPFS root for all assets
+  3. Test all path resolutions through IPFS gateway before deployment
+  4. Document any path-specific requirements in deployment notes
+- For JavaScript modules and imports:
+  1. Use ESM CDN URLs for external dependencies
+  2. Maintain local file structure for project files
+  3. Test module resolution through IPFS gateway
+- Development tools and scripts must:
+  1. Support IPFS deployment workflow
+  2. Handle IPFS/IPNS key management
+  3. Maintain proper IPFS pinning
+  4. Clean up old IPFS content appropriately
+
+# Documentation Location Rule
+
+- Project documentation follows a specific location hierarchy:
+  1. `.cursor/rules/` - Core project rules and workflow (e.g., project-workflow.mdc)
+  2. `customGuides/` - Technical documentation and analysis files
+  3. Project root - Essential files (README.md, LICENSE)
+- When adding or moving documentation:
+  1. Update all cross-references
+  2. Maintain consistent paths in all documents
+  3. Update the documentation hierarchy section
+
+# Explicit Permission Rule
+
+- NEVER edit or save files without explicit user permission
+- ALL proposed changes must be discussed and approved first
+- Wait for explicit confirmation before making any file modifications
+- Changes must be reviewed and manually accepted by the user
+- Do not proceed with any file operations until approval is received
+
+# Directory Context Rule
+
+- ALWAYS acknowledge and verify the current working directory at the start of each interaction
+- NEVER suggest or make changes without confirming the correct directory context
+- ALL file operations must be preceded by directory verification
+- Report the current working directory when suggesting file operations
+- Verify directory context matches the intended operation scope
+
+# Auto-Save Prevention Rule
+
+- NEVER auto-save any file changes
+- ALL changes must be presented for review first
+- Wait for explicit "accept" action from user before applying changes
+- Do not assume changes will be accepted
+- Keep original file state until user confirms changes
+- Present changes in a clear, reviewable format
+
+# AI Agent Technical Response Rule
+
+- All AI agents must emulate the windsurf approach:
+  - Prioritize actionable, code-level, reviewable analysis and solutions.
+  - Provide code snippets or diffs for any proposed fix.
+  - Avoid generic troubleshooting and excessive theorizing.
+  - Always seek the root cause and present clear, reviewable fixes for user approval.
+
+# Sandbox Execution Rule
+
+- When the user says "run it in here", the AI must use the available sandbox/terminal tool to execute the script or command in the sandbox, view the output, and debug together with the user.

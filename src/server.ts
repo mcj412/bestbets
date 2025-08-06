@@ -11,7 +11,22 @@ import logger from './utils/logger';
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+}));
 app.use(cors());
 app.use(compression());
 app.use(express.json());
@@ -73,6 +88,48 @@ app.get('/api/rss/feed', async (req, res) => {
   } catch (error) {
     logger.error('Failed to fetch RSS feed:', error);
     res.status(500).json({ error: 'Failed to fetch RSS feed' });
+  }
+});
+
+app.get('/api/rss/save-to-file', async (req, res) => {
+  try {
+    await rssFeedAgent.saveRSSFeedToFile();
+    res.json({ success: true, message: 'RSS feed content saved to file' });
+  } catch (error) {
+    logger.error('Failed to save RSS feed to file:', error);
+    res.status(500).json({ error: 'Failed to save RSS feed to file' });
+  }
+});
+
+app.get('/api/rss/update', async (req, res) => {
+  try {
+    logger.info('Running standalone Puppeteer script to pull RSS data...');
+
+    // Run the standalone puppeteer_rss.js script
+    const { exec } = require('child_process');
+    const path = require('path');
+    const scriptPath = path.join(__dirname, '../puppeteer_rss.js');
+
+    exec(`node "${scriptPath}"`, (error: any, stdout: any, stderr: any) => {
+      if (error) {
+        logger.error('Error running Puppeteer script:', error);
+        res.status(500).json({ error: 'Failed to run Puppeteer script' });
+        return;
+      }
+
+      if (stderr) {
+        logger.warn('Puppeteer script stderr:', stderr);
+      }
+
+      logger.info('Puppeteer script output:', stdout);
+      logger.info('RSS feed updated successfully');
+
+      res.json({ success: true, message: 'RSS feed updated successfully' });
+    });
+
+  } catch (error) {
+    logger.error('Failed to update RSS feed:', error);
+    res.status(500).json({ error: 'Failed to update RSS feed' });
   }
 });
 

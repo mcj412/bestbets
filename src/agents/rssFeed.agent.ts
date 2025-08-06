@@ -1,5 +1,10 @@
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 import logger from '../utils/logger';
+
+// Add Puppeteer import
+const puppeteer = require('puppeteer');
 
 export interface RSSFeedItem {
   title: string;
@@ -37,41 +42,171 @@ class RSSFeedAgent {
 
   async getRSSFeed(): Promise<RSSFeedData> {
     try {
-      logger.info('Fetching RSS feed from:', this.rssUrl);
-      const response = await axios.get(this.rssUrl, {
-        timeout: 10000, // 10 second timeout
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
+      logger.info('Reading RSS feed from decoded XML file...');
 
-      logger.info('RSS feed response status:', response.status);
+      // Read from the decoded XML file (clean, parsed RSS)
+      const filePath = path.join(__dirname, '../../rss_decoded.xml');
 
-      // Parse XML using regex since we don't have fast-xml-parser
-      const xmlData = response.data;
-      const feedData = this.parseXML(xmlData);
+      if (!fs.existsSync(filePath)) {
+        throw new Error('Decoded RSS file not found. Run the Puppeteer script first.');
+      }
 
-      logger.info(`Fetched ${feedData.items.length} items from RSS feed`);
-      return feedData;
+      const content = fs.readFileSync(filePath, 'utf8');
+      logger.info(`Read ${content.length} characters from decoded RSS file`);
+
+      // Parse the clean XML content
+      return this.parseXML(content);
     } catch (error) {
-      logger.error('Failed to fetch RSS feed:', error);
+      logger.error('Failed to read RSS feed from decoded file:', error);
       throw error;
     }
   }
 
+  private async getRSSWithPuppeteer(): Promise<string | null> {
+    const browser = await puppeteer.launch({
+      headless: true, // Run in background
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
+    });
+
+    try {
+      const page = await browser.newPage();
+
+      // Set a realistic user agent
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+      // Set viewport
+      await page.setViewport({ width: 1920, height: 1080 });
+
+      logger.info('Navigating to RSS feed with Puppeteer...');
+
+      // Go directly to the RSS feed
+      await page.goto(this.rssUrl, {
+        waitUntil: 'networkidle2',
+        timeout: 30000
+      });
+
+      // Wait a bit for any JavaScript to load
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Get the page content
+      const content = await page.content();
+
+      logger.info(`Puppeteer content length: ${content.length}`);
+
+      return content;
+
+    } catch (error) {
+      logger.error('Puppeteer error:', error);
+      return null;
+    } finally {
+      await browser.close();
+    }
+  }
+
+  private getFallbackRSSData(): RSSFeedData {
+    return {
+      title: 'IonoI Bets - Sports Data',
+      description: 'Sports odds and game information',
+      link: 'https://ionoi-bets.com',
+      items: [
+        {
+          title: 'Lakers vs Warriors - NBA Game Tonight',
+          link: 'https://example.com/game1',
+          description: 'Los Angeles Lakers take on Golden State Warriors. Lakers -3.5, O/U 220.5',
+          pubDate: new Date().toISOString(),
+          category: 'NBA'
+        },
+        {
+          title: 'Chiefs vs Bills - NFL Sunday Night Football',
+          link: 'https://example.com/game2',
+          description: 'Kansas City Chiefs vs Buffalo Bills. Chiefs +2.5, O/U 48.5',
+          pubDate: new Date().toISOString(),
+          category: 'NFL'
+        },
+        {
+          title: 'Yankees vs Red Sox - MLB Rivalry Game',
+          link: 'https://example.com/game3',
+          description: 'New York Yankees vs Boston Red Sox. Yankees -1.5, O/U 9.5',
+          pubDate: new Date().toISOString(),
+          category: 'MLB'
+        },
+        {
+          title: 'Heat vs Celtics - NBA Eastern Conference',
+          link: 'https://example.com/game4',
+          description: 'Miami Heat vs Boston Celtics. Heat +4.5, O/U 215.5',
+          pubDate: new Date().toISOString(),
+          category: 'NBA'
+        },
+        {
+          title: 'Cowboys vs Eagles - NFL NFC East Battle',
+          link: 'https://example.com/game5',
+          description: 'Dallas Cowboys vs Philadelphia Eagles. Cowboys -1.5, O/U 45.5',
+          pubDate: new Date().toISOString(),
+          category: 'NFL'
+        }
+      ],
+      lastUpdated: new Date().toISOString()
+    };
+  }
+
   private parseXML(xmlData: string): RSSFeedData {
     try {
+      logger.info('XML Data sample (first 1000 chars):', xmlData.substring(0, 1000));
+      logger.info('XML Data length:', xmlData.length);
+
+      // Check if the content is HTML-encoded (Puppeteer returns HTML with encoded XML)
+      let actualXML = xmlData;
+
+      // If it's wrapped in HTML, extract the XML content
+      if (xmlData.includes('<html>') && xmlData.includes('<pre>')) {
+        // Extract content from <pre> tags
+        const preMatch = xmlData.match(/<pre[^>]*>(.*?)<\/pre>/s);
+        if (preMatch && preMatch[1]) {
+          actualXML = preMatch[1];
+          // Decode HTML entities
+          actualXML = actualXML
+            .replace(/&amp;lt;/g, '<')
+            .replace(/&amp;gt;/g, '>')
+            .replace(/&amp;amp;/g, '&')
+            .replace(/&amp;quot;/g, '"')
+            .replace(/&amp;apos;/g, "'")
+            .replace(/&amp;nbsp;/g, ' ');
+        }
+      }
+
+      // Check if it's actually XML
+      if (!actualXML.includes('<?xml') && !actualXML.includes('<rss') && !actualXML.includes('<feed')) {
+        logger.error('Response does not appear to be XML/RSS');
+        logger.error('First 200 chars:', actualXML.substring(0, 200));
+        logger.error('Contains XML declaration:', actualXML.includes('<?xml'));
+        logger.error('Contains RSS tag:', actualXML.includes('<rss'));
+        logger.error('Contains feed tag:', actualXML.includes('<feed'));
+        throw new Error('Response is not valid XML/RSS');
+      }
+
       // Simple XML parsing using regex
-      const titleMatch = xmlData.match(/<title>(.*?)<\/title>/);
-      const descriptionMatch = xmlData.match(/<description>(.*?)<\/description>/);
-      const linkMatch = xmlData.match(/<link>(.*?)<\/link>/);
+      const titleMatch = actualXML.match(/<title>(.*?)<\/title>/);
+      const descriptionMatch = actualXML.match(/<description>(.*?)<\/description>/);
+      const linkMatch = actualXML.match(/<link>(.*?)<\/link>/);
 
-      // Extract all items
+      // Extract all items - try different patterns
+      let items: RSSFeedItem[] = [];
+
+      // First try the standard RSS item pattern
       const itemRegex = /<item>(.*?)<\/item>/gs;
-      const items: RSSFeedItem[] = [];
       let match;
+      let itemCount = 0;
 
-      while ((match = itemRegex.exec(xmlData)) !== null) {
+      while ((match = itemRegex.exec(actualXML)) !== null) {
+        itemCount++;
         const itemContent = match[1];
         if (itemContent) {
           const itemTitle = itemContent.match(/<title>(.*?)<\/title>/)?.[1] || '';
@@ -88,6 +223,58 @@ class RSSFeedAgent {
             category: itemCategory
           });
         }
+      }
+
+      logger.info(`Found ${itemCount} items using standard RSS pattern`);
+
+      // If no items found, try alternative patterns
+      if (items.length === 0) {
+        logger.info('No items found with standard pattern, trying alternative patterns...');
+
+        // Try looking for any content that might be items
+        const alternativeItemRegex = /<entry>(.*?)<\/entry>/gs;
+        while ((match = alternativeItemRegex.exec(actualXML)) !== null) {
+          itemCount++;
+          const itemContent = match[1];
+          if (itemContent) {
+            const itemTitle = itemContent.match(/<title>(.*?)<\/title>/)?.[1] || '';
+            const itemLink = itemContent.match(/<link>(.*?)<\/link>/)?.[1] || '';
+            const itemDescription = itemContent.match(/<summary>(.*?)<\/summary>/)?.[1] || '';
+            const itemPubDate = itemContent.match(/<published>(.*?)<\/published>/)?.[1] || '';
+            const itemCategory = itemContent.match(/<category>(.*?)<\/category>/)?.[1] || '';
+
+            items.push({
+              title: itemTitle,
+              link: itemLink,
+              description: itemDescription,
+              pubDate: itemPubDate,
+              category: itemCategory
+            });
+          }
+        }
+
+        logger.info(`Found ${items.length} items using alternative pattern`);
+      }
+
+      // If still no items, try to find any content that looks like items
+      if (items.length === 0) {
+        logger.info('Still no items found, trying to extract any content...');
+
+        // Look for any content between tags that might be items
+        const contentRegex = /<([^>]+)>([^<]*)<\/\1>/g;
+        const foundContent: string[] = [];
+        let contentMatch;
+
+        while ((contentMatch = contentRegex.exec(actualXML)) !== null) {
+          const tagName = contentMatch[1];
+          const content = contentMatch[2]?.trim() || '';
+          if (content.length > 10 && !foundContent.includes(content)) {
+            foundContent.push(content);
+          }
+        }
+
+        logger.info(`Found ${foundContent.length} potential content items`);
+        logger.info('Sample content:', foundContent.slice(0, 3));
       }
 
       return {
@@ -255,6 +442,42 @@ class RSSFeedAgent {
       };
     } catch (error) {
       logger.error(`Failed to get league schedule from RSS for ${sportKey}:`, error);
+      throw error;
+    }
+  }
+
+  async saveRSSFeedToFile(): Promise<void> {
+    try {
+      logger.info('Fetching RSS feed and saving to file...');
+      const response = await axios.get(this.rssUrl, {
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'max-age=0'
+        },
+        maxRedirects: 10,
+        validateStatus: (status) => status < 500
+      });
+
+      const content = response.data;
+      const filePath = path.join(__dirname, '../../rss_feed_content.txt');
+
+      fs.writeFileSync(filePath, content, 'utf8');
+      logger.info(`RSS feed content saved to: ${filePath}`);
+      logger.info(`Content length: ${content.length} characters`);
+      logger.info(`Response status: ${response.status}`);
+      logger.info(`Response headers: ${JSON.stringify(response.headers, null, 2)}`);
+
+    } catch (error) {
+      logger.error('Failed to save RSS feed to file:', error);
       throw error;
     }
   }

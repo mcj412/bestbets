@@ -187,16 +187,13 @@
 
         <div class="controls">
             <select id="sportSelect">
+                <option value="all">All Sports</option>
                 <option value="basketball_nba">NBA Basketball</option>
                 <option value="americanfootball_nfl">NFL Football</option>
                 <option value="baseball_mlb">MLB Baseball</option>
+                <option value="icehockey_nhl">NHL Hockey</option>
             </select>
-            <button onclick="loadGames()">Load Games</button>
-            <button onclick="loadSchedule()">Load Full Schedule</button>
-            <button onclick="loadOdds()">Load Odds</button>
-            <button onclick="loadRSSFeed()">Load RSS Feed</button>
-            <button onclick="loadRSSSchedule()">Load RSS Schedule</button>
-            <button onclick="refreshData()">Refresh All</button>
+            <button onclick="updateRSSFeed()">Pull Fresh RSS Data</button>
         </div>
 
         <div class="content">
@@ -208,7 +205,7 @@
     </div>
 
     <script>
-        let currentSport = 'basketball_nba';
+        let currentSport = 'all';
         let gamesData = [];
         let oddsData = [];
         let scheduleData = null;
@@ -219,15 +216,11 @@
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('sportSelect').addEventListener('change', function(e) {
                 currentSport = e.target.value;
-                loadRSSFeed(); // Load RSS feed when sport changes
+                // Don't automatically update RSS feed when sport changes
             });
 
-            // Load RSS feed automatically on page load, with fallback
-            loadRSSFeed().catch((error) => {
-                // If RSS fails, try loading regular games as fallback
-                console.log('RSS feed failed, trying regular games...', error);
-                loadGames();
-            });
+            // Load existing RSS data from file on page load
+            loadExistingRSSData();
         });
 
         function showStatus(message, type = 'info') {
@@ -261,69 +254,20 @@
             document.getElementById('gamesContainer').style.display = 'grid';
         }
 
-        async function loadGames() {
+        async function updateRSSFeed() {
             try {
                 showLoading();
-                showStatus('Loading games...');
+                showStatus('Running Puppeteer to pull fresh RSS data...');
 
-                const response = await fetch(`/api/games/${currentSport}`);
-                if (!response.ok) throw new Error('Failed to load games');
+                // First run Puppeteer to get fresh RSS data
+                const updateResponse = await fetch('/api/rss/update');
+                if (!updateResponse.ok) {
+                    throw new Error(`HTTP ${updateResponse.status}: ${updateResponse.statusText}`);
+                }
 
-                gamesData = await response.json();
-                displayGames();
-                showStatus(`Loaded ${gamesData.length} games`, 'success');
-            } catch (error) {
-                console.error('Error loading games:', error);
-                showError('Failed to load games. Please check your API key and try again.');
-                gamesData = [];
-                displayGames();
-            } finally {
-                hideLoading();
-            }
-        }
+                showStatus('Fresh RSS data pulled, now loading...');
 
-        async function loadOdds() {
-            try {
-                showStatus('Loading odds...');
-
-                const response = await fetch(`/api/odds/${currentSport}`);
-                if (!response.ok) throw new Error('Failed to load odds');
-
-                oddsData = await response.json();
-                displayGames(); // Refresh display with odds
-                showStatus(`Loaded odds for ${oddsData.length} games`, 'success');
-            } catch (error) {
-                console.error('Error loading odds:', error);
-                showError('Failed to load odds data. Please check your API key and try again.');
-            }
-        }
-
-        async function loadSchedule() {
-            try {
-                showLoading();
-                showStatus('Loading full league schedule...');
-
-                const response = await fetch(`/api/schedule/${currentSport}`);
-                if (!response.ok) throw new Error('Failed to load schedule');
-
-                scheduleData = await response.json();
-                displayGames();
-                showStatus(`Loaded ${scheduleData.games.length} upcoming games for ${scheduleData.league}`, 'success');
-            } catch (error) {
-                console.error('Error loading schedule:', error);
-                showError('Failed to load schedule. Please check your API key and try again.');
-                scheduleData = null;
-                displayGames();
-            } finally {
-                hideLoading();
-            }
-        }
-
-        async function loadRSSFeed() {
-            try {
-                showLoading();
-                showStatus('Loading RSS feed from Oddsshark...');
-
+                // Then load the fresh RSS feed
                 const response = await fetch('/api/rss/feed');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -334,15 +278,15 @@
 
                 if (rssFeedData && rssFeedData.items && rssFeedData.items.length > 0) {
                     displayGames();
-                    showStatus(`Loaded ${rssFeedData.items.length} RSS items from Oddsshark`, 'success');
+                    showStatus(`Pulled and loaded ${rssFeedData.items.length} fresh RSS items from Oddsshark`, 'success');
                 } else {
-                    showError('No RSS items found in feed');
+                    showError('No RSS items found after pulling fresh data');
                     rssFeedData = null;
                     displayGames();
                 }
             } catch (error) {
-                console.error('Error loading RSS feed:', error);
-                showError(`Failed to load RSS feed: ${error.message}`);
+                console.error('Error updating RSS feed:', error);
+                showError(`Failed to pull fresh RSS data: ${error.message}`);
                 rssFeedData = null;
                 displayGames();
             } finally {
@@ -350,33 +294,36 @@
             }
         }
 
-        async function loadRSSSchedule() {
+        async function loadExistingRSSData() {
             try {
                 showLoading();
-                showStatus('Loading RSS schedule...');
+                showStatus('Loading existing RSS data from file...');
 
-                const response = await fetch(`/api/rss/schedule/${currentSport}`);
-                if (!response.ok) throw new Error('Failed to load RSS schedule');
+                // Just load the existing RSS feed from local file (no Puppeteer)
+                const response = await fetch('/api/rss/feed');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
 
-                rssScheduleData = await response.json();
-                displayGames();
-                showStatus(`Loaded ${rssScheduleData.games.length} games from RSS for ${rssScheduleData.league}`, 'success');
+                rssFeedData = await response.json();
+                console.log('Existing RSS Feed Data:', rssFeedData);
+
+                if (rssFeedData && rssFeedData.items && rssFeedData.items.length > 0) {
+                    displayGames();
+                    showStatus(`Loaded ${rssFeedData.items.length} existing RSS items from file`, 'success');
+                } else {
+                    showError('No existing RSS data found in file');
+                    rssFeedData = null;
+                    displayGames();
+                }
             } catch (error) {
-                console.error('Error loading RSS schedule:', error);
-                showError('Failed to load RSS schedule. Please try again.');
-                rssScheduleData = null;
+                console.error('Error loading existing RSS data:', error);
+                showError(`Failed to load existing RSS data: ${error.message}`);
+                rssFeedData = null;
                 displayGames();
             } finally {
                 hideLoading();
             }
-        }
-
-        function refreshData() {
-            loadGames();
-            loadSchedule();
-            loadOdds();
-            loadRSSFeed();
-            loadRSSSchedule();
         }
 
         function displayGames() {
@@ -390,18 +337,33 @@
                 dataToDisplay = rssScheduleData.games;
                 dataSource = 'RSS Schedule';
             } else if (rssFeedData && rssFeedData.items && rssFeedData.items.length > 0) {
-                // Convert RSS feed items to game format
-                dataToDisplay = rssFeedData.items.map(item => ({
-                    id: `rss_${item.title.replace(/\s+/g, '_')}`,
-                    sport: 'unknown',
-                    homeTeam: 'TBD',
-                    awayTeam: 'TBD',
-                    startTime: item.pubDate,
-                    status: 'upcoming',
-                    source: 'RSS Feed',
-                    title: item.title,
-                    description: item.description
-                }));
+                // Convert RSS feed items to game format with better parsing
+                dataToDisplay = rssFeedData.items.map(item => {
+                    // Try to extract teams from title
+                    const title = item.title || '';
+                    const description = item.description || '';
+                    const fullText = `${title} ${description}`;
+
+                    // Extract teams using common patterns
+                    const teams = extractTeamsFromText(fullText);
+                    const sport = extractSportFromText(fullText);
+                    const odds = extractOddsFromText(fullText);
+
+                    return {
+                        id: `rss_${item.title.replace(/\s+/g, '_')}`,
+                        sport: sport || 'unknown',
+                        homeTeam: teams.home || 'TBD',
+                        awayTeam: teams.away || 'TBD',
+                        startTime: item.pubDate,
+                        status: 'upcoming',
+                        source: 'RSS Feed',
+                        title: item.title,
+                        description: item.description,
+                        link: item.link,
+                        category: item.category,
+                        odds: odds
+                    };
+                });
                 dataSource = 'RSS Feed';
             } else if (scheduleData && scheduleData.games.length > 0) {
                 dataToDisplay = scheduleData.games;
@@ -416,61 +378,173 @@
                 return;
             }
 
-            container.innerHTML = dataToDisplay.map(game => {
-                const gameOdds = oddsData.find(odds => odds.id === game.id);
-                const startTime = game.startTime ? new Date(game.startTime) : new Date();
+            container.innerHTML = dataToDisplay.map(item => {
+                const startTime = item.startTime ? new Date(item.startTime) : new Date();
                 const timeString = startTime.toLocaleString();
+                const category = item.category || 'Sports';
+                const sportName = getSportDisplayName(item.sport);
 
                 return `
                     <div class="game-card">
                         <div class="game-header">
-                            <div class="teams">${game.awayTeam} @ ${game.homeTeam}</div>
+                            <div class="teams">${item.awayTeam} @ ${item.homeTeam}</div>
                             <div class="game-time">${timeString}</div>
                         </div>
-                        <div class="game-source" style="font-size: 0.8rem; color: #6c757d; margin-bottom: 10px;">
-                            Source: ${dataSource}${game.source ? ` (${game.source})` : ''}
+                        <div class="game-meta" style="font-size: 0.8rem; color: #6c757d; margin-bottom: 10px;">
+                            <span style="background: #e9ecef; padding: 2px 6px; border-radius: 3px; margin-right: 8px;">${sportName}</span>
+                            <span style="background: #e9ecef; padding: 2px 6px; border-radius: 3px;">${category}</span>
                         </div>
-                        ${game.title ? `<div class="game-title" style="font-size: 0.9rem; color: #495057; margin-bottom: 10px;">${game.title}</div>` : ''}
-                        ${game.description ? `<div class="game-description" style="font-size: 0.8rem; color: #6c757d; margin-bottom: 10px;">${game.description.substring(0, 200)}${game.description.length > 200 ? '...' : ''}</div>` : ''}
+                        ${item.title ? `<div class="game-title" style="font-size: 1rem; font-weight: 600; color: #2c3e50; margin-bottom: 8px;">${item.title}</div>` : ''}
+                        ${item.description ? `<div class="game-description" style="font-size: 0.9rem; color: #495057; margin-bottom: 12px; line-height: 1.4;">${item.description}</div>` : ''}
+                        ${item.link ? `<div style="margin-bottom: 12px;"><a href="${item.link}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 0.9rem;">🔗 Read Full Article</a></div>` : ''}
                         <div class="odds-section">
-                            ${gameOdds ? `
-                                <div class="odds-row">
-                                    <span class="odds-label">Spread:</span>
-                                    <span class="odds-value">${gameOdds.bookmakers?.[0]?.markets?.[0]?.outcomes?.[0]?.point || 'N/A'}</span>
-                                </div>
-                                <div class="odds-row">
-                                    <span class="odds-label">Total:</span>
-                                    <span class="odds-value">${gameOdds.bookmakers?.[0]?.markets?.[1]?.outcomes?.[0]?.point || 'N/A'}</span>
-                                </div>
-                            ` : game.odds ? `
-                                <div class="odds-row">
-                                    <span class="odds-label">Spread:</span>
-                                    <span class="odds-value">${game.odds.spread || 'N/A'}</span>
-                                </div>
-                                <div class="odds-row">
-                                    <span class="odds-label">Total:</span>
-                                    <span class="odds-value">${game.odds.total || 'N/A'}</span>
-                                </div>
-                                ${game.odds.moneyline ? `
+                            ${item.odds && (item.odds.spread || item.odds.total || item.odds.moneyline) ? `
+                                <div style="font-weight: 600; color: #495057; margin-bottom: 8px;">📊 Odds Information:</div>
+                                ${item.odds.spread ? `
+                                    <div class="odds-row">
+                                        <span class="odds-label">Spread:</span>
+                                        <span class="odds-value">${item.odds.spread}</span>
+                                    </div>
+                                ` : ''}
+                                ${item.odds.total ? `
+                                    <div class="odds-row">
+                                        <span class="odds-label">Total:</span>
+                                        <span class="odds-value">${item.odds.total}</span>
+                                    </div>
+                                ` : ''}
+                                ${item.odds.moneyline ? `
                                     <div class="odds-row">
                                         <span class="odds-label">Moneyline:</span>
-                                        <span class="odds-value">${game.odds.moneyline}</span>
+                                        <span class="odds-value">${item.odds.moneyline}</span>
                                     </div>
                                 ` : ''}
                             ` : `
                                 <div class="odds-row">
                                     <span class="odds-label">Status:</span>
-                                    <span class="odds-value">${game.status}</span>
+                                    <span class="odds-value">${item.status}</span>
                                 </div>
                                 <div class="odds-row">
-                                    <span class="odds-label">Odds:</span>
-                                    <span class="odds-value">Not available</span>
+                                    <span class="odds-label">Source:</span>
+                                    <span class="odds-value">${dataSource}</span>
                                 </div>
                             `}
                         </div>
                     </div>
                 `;
             }).join('');
+        }
+
+        function extractTeamsFromText(text) {
+            const lowerText = text.toLowerCase();
+
+            // Common team name patterns
+            const teamPatterns = {
+                // NBA Teams
+                'lakers': 'Lakers', 'celtics': 'Celtics', 'warriors': 'Warriors', 'heat': 'Heat',
+                'bulls': 'Bulls', 'knicks': 'Knicks', 'suns': 'Suns', 'mavericks': 'Mavericks',
+                'bucks': 'Bucks', '76ers': '76ers', 'nets': 'Nets', 'clippers': 'Clippers',
+                'nuggets': 'Nuggets', 'jazz': 'Jazz', 'trail blazers': 'Trail Blazers',
+                'thunder': 'Thunder', 'pelicans': 'Pelicans', 'kings': 'Kings',
+                'timberwolves': 'Timberwolves', 'rockets': 'Rockets', 'spurs': 'Spurs',
+                'grizzlies': 'Grizzlies', 'magic': 'Magic', 'hawks': 'Hawks',
+                'hornets': 'Hornets', 'pistons': 'Pistons', 'pacers': 'Pacers',
+                'cavaliers': 'Cavaliers', 'raptors': 'Raptors', 'wizards': 'Wizards',
+
+                // NFL Teams
+                'chiefs': 'Chiefs', 'bills': 'Bills', '49ers': '49ers', 'cowboys': 'Cowboys',
+                'packers': 'Packers', 'lions': 'Lions', 'patriots': 'Patriots', 'jets': 'Jets',
+                'dolphins': 'Dolphins', 'steelers': 'Steelers', 'browns': 'Browns',
+                'bengals': 'Bengals', 'ravens': 'Ravens', 'titans': 'Titans',
+                'jaguars': 'Jaguars', 'colts': 'Colts', 'texans': 'Texans',
+                'broncos': 'Broncos', 'raiders': 'Raiders', 'chargers': 'Chargers',
+                'eagles': 'Eagles', 'giants': 'Giants', 'commanders': 'Commanders',
+                'cardinals': 'Cardinals', 'rams': 'Rams', 'seahawks': 'Seahawks',
+                'falcons': 'Falcons', 'panthers': 'Panthers', 'saints': 'Saints',
+                'buccaneers': 'Buccaneers', 'vikings': 'Vikings', 'bears': 'Bears',
+
+                // MLB Teams
+                'yankees': 'Yankees', 'red sox': 'Red Sox', 'dodgers': 'Dodgers',
+                'giants': 'Giants', 'cubs': 'Cubs', 'cardinals': 'Cardinals',
+                'mets': 'Mets', 'phillies': 'Phillies', 'braves': 'Braves',
+                'marlins': 'Marlins', 'nationals': 'Nationals', 'orioles': 'Orioles',
+                'blue jays': 'Blue Jays', 'rays': 'Rays', 'white sox': 'White Sox',
+                'indians': 'Indians', 'tigers': 'Tigers', 'royals': 'Royals',
+                'twins': 'Twins', 'astros': 'Astros', 'rangers': 'Rangers',
+                'athletics': 'Athletics', 'mariners': 'Mariners', 'angels': 'Angels',
+                'rockies': 'Rockies', 'diamondbacks': 'Diamondbacks',
+                'padres': 'Padres', 'brewers': 'Brewers', 'reds': 'Reds', 'pirates': 'Pirates'
+            };
+
+            const foundTeams = [];
+            for (const [pattern, name] of Object.entries(teamPatterns)) {
+                if (lowerText.includes(pattern) && !foundTeams.includes(name)) {
+                    foundTeams.push(name);
+                }
+            }
+
+            return {
+                away: foundTeams[0] || 'TBD',
+                home: foundTeams[1] || 'TBD'
+            };
+        }
+
+        function extractSportFromText(text) {
+            const lowerText = text.toLowerCase();
+
+            if (lowerText.includes('nba') || lowerText.includes('basketball')) {
+                return 'basketball_nba';
+            }
+            if (lowerText.includes('nfl') || lowerText.includes('football')) {
+                return 'americanfootball_nfl';
+            }
+            if (lowerText.includes('mlb') || lowerText.includes('baseball')) {
+                return 'baseball_mlb';
+            }
+            if (lowerText.includes('nhl') || lowerText.includes('hockey')) {
+                return 'icehockey_nhl';
+            }
+            if (lowerText.includes('soccer') || lowerText.includes('fifa')) {
+                return 'soccer';
+            }
+
+            return 'unknown';
+        }
+
+        function extractOddsFromText(text) {
+            const lowerText = text.toLowerCase();
+            const odds = {};
+
+            // Extract spread (e.g., -3.5, +7)
+            const spreadMatch = lowerText.match(/([+-]\d+\.?\d*)\s*(point|pt|pts)/i);
+            if (spreadMatch && spreadMatch[1]) {
+                odds.spread = spreadMatch[1];
+            }
+
+            // Extract total (e.g., O/U 220.5)
+            const totalMatch = lowerText.match(/(?:o\/u|over\/under|total)\s*(\d+\.?\d*)/i);
+            if (totalMatch && totalMatch[1]) {
+                odds.total = totalMatch[1];
+            }
+
+            // Extract moneyline (e.g., -110, +150)
+            const moneylineMatch = lowerText.match(/([+-]\d{3,4})/g);
+            if (moneylineMatch && moneylineMatch.length >= 2) {
+                odds.moneyline = moneylineMatch.slice(0, 2).join(' / ');
+            }
+
+            return Object.keys(odds).length > 0 ? odds : null;
+        }
+
+        function getSportDisplayName(sport) {
+            const sportNames = {
+                'basketball_nba': 'NBA',
+                'americanfootball_nfl': 'NFL',
+                'baseball_mlb': 'MLB',
+                'icehockey_nhl': 'NHL',
+                'soccer': 'Soccer',
+                'unknown': 'Sports'
+            };
+            return sportNames[sport] || 'Sports';
         }
     </script>
 </body>

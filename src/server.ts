@@ -110,10 +110,16 @@ app.get('/api/rss/update', async (req, res) => {
     const path = require('path');
     const scriptPath = path.join(__dirname, '../puppeteer_rss.js');
 
+    logger.info(`Executing script: ${scriptPath}`);
+
     exec(`node "${scriptPath}"`, (error: any, stdout: any, stderr: any) => {
       if (error) {
         logger.error('Error running Puppeteer script:', error);
-        res.status(500).json({ error: 'Failed to run Puppeteer script' });
+        res.status(500).json({ 
+          error: 'Failed to run Puppeteer script', 
+          details: error.message,
+          code: error.code 
+        });
         return;
       }
 
@@ -121,15 +127,23 @@ app.get('/api/rss/update', async (req, res) => {
         logger.warn('Puppeteer script stderr:', stderr);
       }
 
-      logger.info('Puppeteer script output:', stdout);
-      logger.info('RSS feed updated successfully');
+      logger.info('Puppeteer script completed successfully');
+      logger.info('Script output:', stdout);
 
-      res.json({ success: true, message: 'RSS feed updated successfully' });
+      res.json({ 
+        success: true, 
+        message: 'RSS feed updated successfully',
+        output: stdout.substring(0, 500) + '...' // Truncate long output
+      });
     });
 
   } catch (error) {
     logger.error('Failed to update RSS feed:', error);
-    res.status(500).json({ error: 'Failed to update RSS feed' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ 
+      error: 'Failed to update RSS feed', 
+      details: errorMessage 
+    });
   }
 });
 

@@ -257,10 +257,16 @@
         async function updateRSSFeed() {
             try {
                 showLoading();
-                showStatus('Running Puppeteer to pull fresh RSS data...');
+                showStatus('Running Puppeteer to pull fresh RSS data... (this may take several minutes)');
 
-                // First run Puppeteer to get fresh RSS data
-                const updateResponse = await fetch('/api/rss/update');
+                // First run Puppeteer to get fresh RSS data with longer timeout
+                const updateResponse = await fetch('/api/rss/update', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
                 if (!updateResponse.ok) {
                     throw new Error(`HTTP ${updateResponse.status}: ${updateResponse.statusText}`);
                 }

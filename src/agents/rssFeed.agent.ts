@@ -42,22 +42,72 @@ class RSSFeedAgent {
 
   async getRSSFeed(): Promise<RSSFeedData> {
     try {
-      logger.info('Reading RSS feed from decoded XML file...');
+      logger.info('Reading enhanced RSS feed with odds data...');
 
-      // Read from the decoded XML file (clean, parsed RSS)
-      const filePath = path.join(__dirname, '../../rss_decoded.xml');
+      // Read from the enhanced JSON file with odds data
+      const filePath = path.join(__dirname, '../../rss_with_odds.json');
 
       if (!fs.existsSync(filePath)) {
-        throw new Error('Decoded RSS file not found. Run the Puppeteer script first.');
+        throw new Error('Enhanced RSS file with odds not found. Run the Puppeteer script first.');
       }
 
       const content = fs.readFileSync(filePath, 'utf8');
-      logger.info(`Read ${content.length} characters from decoded RSS file`);
+      const enhancedData = JSON.parse(content);
+      logger.info(`Read enhanced RSS data with ${enhancedData.totalArticlesWithOdds || 0} articles with odds`);
 
-      // Parse the clean XML content
-      return this.parseXML(content);
+      // Convert enhanced data back to RSSFeedData format
+      const items: RSSFeedItem[] = [];
+
+      if (enhancedData.articlesWithOdds) {
+        enhancedData.articlesWithOdds.forEach((article: any) => {
+          const rssItem = article.rssItem;
+          const oddsData = article.oddsData;
+
+          // Create enhanced description with odds information
+          let enhancedDescription = rssItem.description || '';
+
+          if (oddsData.tables && oddsData.tables.length > 0) {
+            enhancedDescription += '\n\n📊 Odds Tables Found:';
+            oddsData.tables.forEach((table: any, index: number) => {
+              enhancedDescription += `\nTable ${index + 1}: ${table.headers.join(' | ')}`;
+              if (table.rows.length > 0) {
+                enhancedDescription += `\n${table.rows.slice(0, 3).map((row: any) => row.join(' | ')).join('\n')}`;
+                if (table.rows.length > 3) {
+                  enhancedDescription += `\n... and ${table.rows.length - 3} more rows`;
+                }
+              }
+            });
+          }
+
+          if (oddsData.odds && oddsData.odds.length > 0) {
+            enhancedDescription += `\n\n🎯 Odds Patterns: ${oddsData.odds.slice(0, 10).join(', ')}`;
+            if (oddsData.odds.length > 10) {
+              enhancedDescription += ` (and ${oddsData.odds.length - 10} more)`;
+            }
+          }
+
+          items.push({
+            title: rssItem.title,
+            link: rssItem.link,
+            description: enhancedDescription,
+            pubDate: rssItem.pubDate,
+            category: rssItem.category || 'Enhanced with Odds'
+          });
+        });
+      } else if (enhancedData.items) {
+        // Fallback to regular RSS items if no enhanced data
+        items.push(...enhancedData.items);
+      }
+
+      return {
+        title: enhancedData.channel?.title || 'Enhanced RSS Feed with Odds',
+        description: enhancedData.channel?.description || 'RSS feed with extracted odds data',
+        link: enhancedData.channel?.link || '',
+        items: items,
+        lastUpdated: enhancedData.lastUpdated || new Date().toISOString()
+      };
     } catch (error) {
-      logger.error('Failed to read RSS feed from decoded file:', error);
+      logger.error('Failed to read enhanced RSS feed:', error);
       throw error;
     }
   }

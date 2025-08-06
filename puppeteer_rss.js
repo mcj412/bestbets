@@ -92,8 +92,113 @@ function parseRSSToJSON(xmlContent) {
     }
 }
 
+// Function to extract odds data from article page
+async function extractOddsFromArticle(page, articleUrl) {
+    try {
+        console.log(`📄 Scraping odds from: ${articleUrl}`);
+
+        await page.goto(articleUrl, {
+            waitUntil: 'networkidle2',
+            timeout: 30000
+        });
+
+        // Wait for content to load
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Extract odds data from various table formats
+        const oddsData = await page.evaluate(() => {
+            const data = {
+                title: document.title,
+                url: window.location.href,
+                odds: [],
+                tables: [],
+                text: ''
+            };
+
+            // Get main content text
+            const contentSelectors = [
+                '.field--name-body',
+                '.article-content',
+                '.content-body',
+                'article',
+                '.main-content'
+            ];
+
+            for (const selector of contentSelectors) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    data.text = element.textContent.trim();
+                    break;
+                }
+            }
+
+            // Extract all tables
+            const tables = document.querySelectorAll('table');
+            tables.forEach((table, index) => {
+                const tableData = {
+                    index: index,
+                    headers: [],
+                    rows: []
+                };
+
+                // Get headers
+                const headers = table.querySelectorAll('th');
+                headers.forEach(header => {
+                    tableData.headers.push(header.textContent.trim());
+                });
+
+                // Get rows
+                const rows = table.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length > 0) {
+                        const rowData = [];
+                        cells.forEach(cell => {
+                            rowData.push(cell.textContent.trim());
+                        });
+                        tableData.rows.push(rowData);
+                    }
+                });
+
+                data.tables.push(tableData);
+            });
+
+            // Look for odds patterns in text
+            const oddsPatterns = [
+                /([+-]\d+\.?\d*)\s*(point|pt|pts)/gi,
+                /(?:o\/u|over\/under|total)\s*(\d+\.?\d*)/gi,
+                /([+-]\d{3,4})/g,
+                /(\d+\.?\d*)\s*to\s*(\d+\.?\d*)/gi
+            ];
+
+            oddsPatterns.forEach(pattern => {
+                const matches = data.text.match(pattern);
+                if (matches) {
+                    data.odds.push(...matches);
+                }
+            });
+
+            return data;
+        });
+
+        console.log(`✅ Extracted odds data from article`);
+        return oddsData;
+
+    } catch (error) {
+        console.error(`❌ Error extracting odds from ${articleUrl}:`, error);
+        return {
+            title: 'Error',
+            url: articleUrl,
+            odds: [],
+            tables: [],
+            text: '',
+            error: error.message
+        };
+    }
+}
+
 async function getRSSWithPuppeteer() {
-    console.log('Starting Puppeteer to bypass AWS WAF...');
+    console.log('Starting Puppeteer to bypass AWS WAF and extract odds data...');
 
     const browser = await puppeteer.launch({
         headless: false, // Set to true if you don't want to see the browser
@@ -153,22 +258,54 @@ async function getRSSWithPuppeteer() {
             console.log('🎉 SUCCESS! Got RSS content!');
             console.log(`📊 Found ${jsonData.totalItems || 0} RSS items`);
 
-            // Show first few items
-            if (jsonData.items && jsonData.items.length > 0) {
-                console.log('\n📰 First 3 RSS items:');
-                jsonData.items.slice(0, 3).forEach((item, index) => {
-                    console.log(`${index + 1}. ${item.title}`);
-                    console.log(`   Link: ${item.link}`);
-                    console.log(`   Category: ${item.category}`);
-                    console.log('');
+            // Extract odds from each article (process all articles)
+            const articlesWithOdds = [];
+            const maxArticles = jsonData.items.length;
+
+            console.log(`\n🔍 Extracting odds from first ${maxArticles} articles...`);
+
+            for (let i = 0; i < maxArticles; i++) {
+                const item = jsonData.items[i];
+                console.log(`\n📰 Processing article ${i + 1}/${maxArticles}: ${item.title}`);
+
+                const oddsData = await extractOddsFromArticle(page, item.link);
+
+                articlesWithOdds.push({
+                    rssItem: item,
+                    oddsData: oddsData
                 });
+
+                // Small delay between requests
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
+
+            // Save the enhanced data with odds
+            const enhancedData = {
+                ...jsonData,
+                articlesWithOdds: articlesWithOdds,
+                totalArticlesWithOdds: articlesWithOdds.length
+            };
+
+            fs.writeFileSync('rss_with_odds.json', JSON.stringify(enhancedData, null, 2));
+            console.log('✅ Saved enhanced data with odds to rss_with_odds.json');
+
+            // Show summary
+            console.log('\n📊 Summary of extracted odds:');
+            articlesWithOdds.forEach((article, index) => {
+                console.log(`${index + 1}. ${article.rssItem.title}`);
+                console.log(`   Tables found: ${article.oddsData.tables.length}`);
+                console.log(`   Odds patterns: ${article.oddsData.odds.length}`);
+                console.log(`   URL: ${article.rssItem.link}`);
+                console.log('');
+            });
 
             return {
                 raw: rawContent,
                 decoded: decodedXML,
-                parsed: jsonData
+                parsed: jsonData,
+                enhanced: enhancedData
             };
+
         } else if (rawContent.includes('AWS WAF') || rawContent.includes('challenge')) {
             console.log('⚠️ Still getting AWS WAF challenge. Trying alternative approach...');
 
@@ -234,6 +371,9 @@ getRSSWithPuppeteer().then(result => {
         console.log('  - rss_puppeteer.xml (raw HTML-encoded)');
         console.log('  - rss_decoded.xml (clean XML)');
         console.log('  - rss_parsed.json (structured JSON data)');
+        if (result.enhanced) {
+            console.log('  - rss_with_odds.json (enhanced with odds data)');
+        }
         console.log('\n🎯 You can now use any of these files in your application!');
     } else {
         console.log('\n❌ Failed to get RSS content with Puppeteer.');

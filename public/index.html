@@ -194,6 +194,8 @@
                 <option value="icehockey_nhl">NHL Hockey</option>
             </select>
             <button onclick="updateRSSFeed()">Pull Fresh RSS Data</button>
+            <button onclick="checkRSSStatus()">Check RSS Status</button>
+            <button onclick="startAIAnalysis()" style="background: linear-gradient(45deg, #667eea 0%, #764ba2 100%); color: white;">🤖 Start AI Analysis</button>
         </div>
 
         <div class="content">
@@ -257,9 +259,9 @@
         async function updateRSSFeed() {
             try {
                 showLoading();
-                showStatus('Running Puppeteer to pull fresh RSS data... (this may take several minutes)');
+                showStatus('🚀 Starting Puppeteer process... (watch terminal for live output)');
 
-                // First run Puppeteer to get fresh RSS data with longer timeout
+                // Start Puppeteer process
                 const updateResponse = await fetch('/api/rss/update', {
                     method: 'GET',
                     headers: {
@@ -271,31 +273,16 @@
                     throw new Error(`HTTP ${updateResponse.status}: ${updateResponse.statusText}`);
                 }
 
-                showStatus('Fresh RSS data pulled, now loading...');
+                const updateResult = await updateResponse.json();
+                showStatus(updateResult.message || 'Puppeteer started successfully');
+                hideLoading();
 
-                // Then load the fresh RSS feed
-                const response = await fetch('/api/rss/feed');
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
+                // Show instructions to user
+                showStatus('✅ Puppeteer is now running! Watch your terminal/console for live output. Use "Check RSS Status" button to see when files are ready.', 'info');
 
-                rssFeedData = await response.json();
-                console.log('RSS Feed Data:', rssFeedData); // Debug log
-
-                if (rssFeedData && rssFeedData.items && rssFeedData.items.length > 0) {
-                    displayGames();
-                    showStatus(`Pulled and loaded ${rssFeedData.items.length} fresh RSS items from Oddsshark`, 'success');
-                } else {
-                    showError('No RSS items found after pulling fresh data');
-                    rssFeedData = null;
-                    displayGames();
-                }
             } catch (error) {
-                console.error('Error updating RSS feed:', error);
-                showError(`Failed to pull fresh RSS data: ${error.message}`);
-                rssFeedData = null;
-                displayGames();
-            } finally {
+                console.error('Error starting Puppeteer:', error);
+                showError(`Failed to start Puppeteer: ${error.message}`);
                 hideLoading();
             }
         }
@@ -355,20 +342,39 @@
                     const sport = extractSportFromText(fullText);
                     const odds = extractOddsFromText(fullText);
 
-                    return {
-                        id: `rss_${item.title.replace(/\s+/g, '_')}`,
-                        sport: sport || 'unknown',
-                        homeTeam: teams.home || 'TBD',
-                        awayTeam: teams.away || 'TBD',
-                        startTime: item.pubDate,
-                        status: 'upcoming',
-                        source: 'RSS Feed',
-                        title: item.title,
-                        description: item.description,
-                        link: item.link,
-                        category: item.category,
-                        odds: odds
-                    };
+                                         // Generate better team names from structured odds if traditional teams not found
+                     let homeTeam = teams.home;
+                     let awayTeam = teams.away;
+
+                     if ((homeTeam === 'TBD' || awayTeam === 'TBD') && item.odds) {
+                         // Try to get names from structured odds data
+                         if (item.odds.moneyline && item.odds.moneyline.length >= 2) {
+                             awayTeam = item.odds.moneyline[0]?.team || awayTeam;
+                             homeTeam = item.odds.moneyline[1]?.team || homeTeam;
+                         } else if (item.odds.fighters && item.odds.fighters.length >= 2) {
+                             awayTeam = item.odds.fighters[0]?.name || awayTeam;
+                             homeTeam = item.odds.fighters[1]?.name || homeTeam;
+                         } else if (item.odds.playerProps && item.odds.playerProps.length >= 2) {
+                             awayTeam = item.odds.playerProps[0]?.player || awayTeam;
+                             homeTeam = item.odds.playerProps[1]?.player || homeTeam;
+                         }
+                     }
+
+                     return {
+                         id: `rss_${item.title.replace(/\s+/g, '_')}`,
+                         sport: sport || 'unknown',
+                         homeTeam: homeTeam,
+                         awayTeam: awayTeam,
+                         startTime: item.pubDate,
+                         status: 'upcoming',
+                         source: 'RSS Feed',
+                         title: item.title,
+                         description: item.description,
+                         link: item.link,
+                         category: item.category,
+                         odds: item.odds || odds, // Use structured odds from backend if available, fallback to extracted odds
+                         aiAnalysis: item.aiAnalysis // Pass through AI analysis data
+                     };
                 });
                 dataSource = 'RSS Feed';
             } else if (scheduleData && scheduleData.games.length > 0) {
@@ -390,51 +396,170 @@
                 const category = item.category || 'Sports';
                 const sportName = getSportDisplayName(item.sport);
 
-                return `
-                    <div class="game-card">
-                        <div class="game-header">
-                            <div class="teams">${item.awayTeam} @ ${item.homeTeam}</div>
-                            <div class="game-time">${timeString}</div>
-                        </div>
-                        <div class="game-meta" style="font-size: 0.8rem; color: #6c757d; margin-bottom: 10px;">
-                            <span style="background: #e9ecef; padding: 2px 6px; border-radius: 3px; margin-right: 8px;">${sportName}</span>
-                            <span style="background: #e9ecef; padding: 2px 6px; border-radius: 3px;">${category}</span>
-                        </div>
-                        ${item.title ? `<div class="game-title" style="font-size: 1rem; font-weight: 600; color: #2c3e50; margin-bottom: 8px;">${item.title}</div>` : ''}
-                        ${item.description ? `<div class="game-description" style="font-size: 0.9rem; color: #495057; margin-bottom: 12px; line-height: 1.4;">${item.description}</div>` : ''}
-                        ${item.link ? `<div style="margin-bottom: 12px;"><a href="${item.link}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 0.9rem;">🔗 Read Full Article</a></div>` : ''}
-                        <div class="odds-section">
-                            ${item.odds && (item.odds.spread || item.odds.total || item.odds.moneyline) ? `
-                                <div style="font-weight: 600; color: #495057; margin-bottom: 8px;">📊 Odds Information:</div>
-                                ${item.odds.spread ? `
-                                    <div class="odds-row">
-                                        <span class="odds-label">Spread:</span>
-                                        <span class="odds-value">${item.odds.spread}</span>
-                                    </div>
-                                ` : ''}
-                                ${item.odds.total ? `
-                                    <div class="odds-row">
-                                        <span class="odds-label">Total:</span>
-                                        <span class="odds-value">${item.odds.total}</span>
-                                    </div>
-                                ` : ''}
-                                ${item.odds.moneyline ? `
-                                    <div class="odds-row">
-                                        <span class="odds-label">Moneyline:</span>
-                                        <span class="odds-value">${item.odds.moneyline}</span>
-                                    </div>
-                                ` : ''}
-                            ` : `
-                                <div class="odds-row">
-                                    <span class="odds-label">Status:</span>
-                                    <span class="odds-value">${item.status}</span>
+                                 return `
+                     <div class="game-card">
+                         <div class="game-header">
+                             <div class="teams">${item.awayTeam} @ ${item.homeTeam}</div>
+                             <div class="game-time">${timeString}</div>
+                         </div>
+                         <div class="game-meta" style="font-size: 0.8rem; color: #6c757d; margin-bottom: 10px;">
+                             <span style="background: #e9ecef; padding: 2px 6px; border-radius: 3px; margin-right: 8px;">${sportName}</span>
+                             <span style="background: #e9ecef; padding: 2px 6px; border-radius: 3px;">${category}</span>
+                         </div>
+
+                         ${item.odds && (item.odds.spread || item.odds.total || item.odds.moneyline) ? `
+                                                           <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #28a745;">
+                                  <div style="font-weight: 600; color: #495057; margin-bottom: 8px; font-size: 1.1rem;">📊 Key Odds:</div>
+                                  <div style="font-size: 0.8rem; color: #6c757d; margin-bottom: 8px; font-style: italic;">💡 Negative odds = favored team | Positive odds = underdog | Spread: same number, opposite signs</div>
+                                                                   ${item.odds.moneyline && Array.isArray(item.odds.moneyline) ? item.odds.moneyline.map(ml => {
+                                      const isNegative = ml.odds.startsWith('-');
+                                      const isFavored = isNegative;
+                                      const oddsColor = isNegative ? '#dc3545' : '#28a745';
+                                      const teamColor = isFavored ? '#28a745' : '#495057';
+                                      return `
+                                          <div class="odds-row" style="margin-bottom: 5px;">
+                                              <span class="odds-label" style="font-weight: 600; color: ${teamColor};">${ml.team}:</span>
+                                              <span class="odds-value" style="color: ${oddsColor}; font-weight: 700;">${ml.odds}</span>
+                                          </div>
+                                      `;
+                                  }).join('') : ''}
+                                  ${item.odds.spread && Array.isArray(item.odds.spread) ? item.odds.spread.map(sp => {
+                                      const isNegative = sp.line.startsWith('-');
+                                      const isFavored = isNegative;
+                                      const lineColor = isNegative ? '#dc3545' : '#28a745';
+                                      const teamColor = isFavored ? '#28a745' : '#495057';
+                                      return `
+                                          <div class="odds-row" style="margin-bottom: 5px;">
+                                              <span class="odds-label" style="font-weight: 600; color: ${teamColor};">${sp.team} Spread:</span>
+                                              <span class="odds-value" style="color: ${lineColor}; font-weight: 700;">${sp.line} (${sp.odds})</span>
+                                          </div>
+                                      `;
+                                  }).join('') : ''}
+                                 ${item.odds.total ? `
+                                     <div class="odds-row" style="margin-bottom: 5px;">
+                                         <span class="odds-label" style="font-weight: 600;">Total (${item.odds.total.line}):</span>
+                                         <span class="odds-value" style="color: #28a745; font-weight: 700;">Over: ${item.odds.total.over}, Under: ${item.odds.total.under}</span>
+                                     </div>
+                                 ` : ''}
+                             </div>
+                         ` : `
+                             <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #6c757d;">
+                                 <div style="font-weight: 600; color: #495057; margin-bottom: 8px; font-size: 1.1rem;">📊 Status:</div>
+                                 <div class="odds-row" style="margin-bottom: 5px;">
+                                     <span class="odds-label" style="font-weight: 600;">Status:</span>
+                                     <span class="odds-value" style="color: #6c757d; font-weight: 700;">${item.status}</span>
+                                 </div>
+                                 <div class="odds-row" style="margin-bottom: 5px;">
+                                     <span class="odds-label" style="font-weight: 600;">Source:</span>
+                                     <span class="odds-value" style="color: #6c757d; font-weight: 700;">${dataSource}</span>
+                                 </div>
+                             </div>
+                         `}
+
+                                                   ${item.title ? `<div class="game-title" style="font-size: 1rem; font-weight: 600; color: #2c3e50; margin-bottom: 8px;">${item.title}</div>` : ''}
+
+                          <!-- Collapsible Emoji Stats Section -->
+                          <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #e9ecef;">
+                              <button onclick="toggleEmojiStats('${item.id}')" style="background: #17a2b8; color: white; border: none; padding: 5px 10px; border-radius: 3px; font-size: 0.8rem; cursor: pointer; margin-right: 8px;">
+                                  📊 Show/Hide Raw Data
+                              </button>
+                              <button onclick="toggleDetails('${item.id}')" style="background: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 3px; font-size: 0.8rem; cursor: pointer;">
+                                  📋 Show/Hide Detailed Analysis
+                              </button>
+
+                              <!-- Emoji Stats (Hidden by default) -->
+                              <div id="emoji-stats-${item.id}" style="display: none; margin-top: 10px; padding: 10px; background: #e3f2fd; border-radius: 5px; font-size: 0.9rem; border-left: 3px solid #17a2b8;">
+                                  <div style="font-weight: 600; margin-bottom: 8px; color: #0c5460;">📈 Raw Extracted Data:</div>
+                                  ${item.description ? `<div style="font-size: 0.85rem; color: #495057; margin-bottom: 8px; line-height: 1.3; white-space: pre-line;">${item.description}</div>` : 'No raw data available'}
+                              </div>
+
+                              <!-- Detailed Analysis (Hidden by default) -->
+                              <div id="details-${item.id}" style="display: none; margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px; font-size: 0.9rem;">
+                                  <div style="font-weight: 600; margin-bottom: 8px;">🔍 Detailed Information:</div>
+                                  ${item.odds && item.odds.keyOdds ? item.odds.keyOdds.map(odd => `
+                                      <div style="margin-bottom: 5px;">
+                                          <strong>${odd.type}:</strong> ${odd.description} - ${odd.value}
+                                      </div>
+                                  `).join('') : 'No detailed odds available'}
+                              </div>
+                          </div>
+
+                          <!-- AI Analysis Section -->
+                          <div style="margin-top: 15px; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 5px; color: white;">
+                              <div style="font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                                🤖 AI Analysis
+                                ${item.aiAnalysis ? `<span style="background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 12px; font-size: 0.8rem;">${item.aiAnalysis.confidencePercentage || 0}% Confidence</span>` : ''}
+                              </div>
+
+                              ${item.aiAnalysis ? `
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 0.85rem;">
+                                  <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                                      <strong>📈 Line History:</strong><br>
+                                      <span style="color: rgba(255,255,255,0.9);">${item.aiAnalysis.lineHistory || 'Analysis unavailable'}</span>
+                                  </div>
+                                  <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                                      <strong>🎯 To Cover:</strong><br>
+                                      <span style="color: rgba(255,255,255,0.9);">${item.aiAnalysis.toCover || 'Analysis unavailable'}</span>
+                                  </div>
+                                  <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                                      <strong>⚡ Sharp Movement:</strong><br>
+                                      <span style="color: rgba(255,255,255,0.9);">${item.aiAnalysis.sharpMovement || 'Analysis unavailable'}</span>
+                                  </div>
+                                  <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                                      <strong>🎯 Market Consensus:</strong><br>
+                                      <span style="color: rgba(255,255,255,0.9);">${item.aiAnalysis.generalConsensus || 'Analysis unavailable'}</span>
+                                  </div>
                                 </div>
-                                <div class="odds-row">
-                                    <span class="odds-label">Source:</span>
-                                    <span class="odds-value">${dataSource}</span>
+
+                                <div style="margin-top: 10px;">
+                                    <button onclick="toggleAIDetails('${item.id}')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 0.8rem;">
+                                        ${item.aiDetailsVisible ? 'Hide' : 'Show'} Detailed AI Analysis
+                                    </button>
                                 </div>
-                            `}
-                        </div>
+
+                                <div id="ai-details-${item.id}" style="display: ${item.aiDetailsVisible ? 'block' : 'none'}; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                                    <div style="margin-bottom: 10px;">
+                                        <strong>🔍 Key Insights:</strong>
+                                        <ul style="margin: 5px 0; padding-left: 20px;">
+                                            ${(item.aiAnalysis.keyInsights || []).map(insight => `<li>${insight}</li>`).join('')}
+                                        </ul>
+                                    </div>
+
+                                    <div style="margin-bottom: 10px;">
+                                        <strong>💡 Betting Recommendations:</strong>
+                                        <ul style="margin: 5px 0; padding-left: 20px;">
+                                            ${(item.aiAnalysis.bettingRecommendations || []).map(rec => `<li>${rec}</li>`).join('')}
+                                        </ul>
+                                    </div>
+
+                                    <div style="margin-bottom: 10px;">
+                                        <strong>📊 Trends:</strong>
+                                        <ul style="margin: 5px 0; padding-left: 20px;">
+                                            ${(item.aiAnalysis.trends || []).map(trend => `<li>${trend}</li>`).join('')}
+                                        </ul>
+                                    </div>
+
+                                    <div style="margin-bottom: 10px;">
+                                        <strong>⚡ Black Swan Events:</strong>
+                                        <ul style="margin: 5px 0; padding-left: 20px;">
+                                            ${(item.aiAnalysis.blackSwanEvents || []).map(event => `<li>${event}</li>`).join('')}
+                                        </ul>
+                                    </div>
+
+                                    <div>
+                                        <strong>📝 Summary:</strong><br>
+                                        <span style="color: rgba(255,255,255,0.9);">${item.aiAnalysis.summary || 'No summary available'}</span>
+                                    </div>
+                                </div>
+                              ` : `
+                                <div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.8);">
+                                    <div style="margin-bottom: 10px;">🤖 AI Analysis Not Available</div>
+                                    <div style="font-size: 0.8rem;">Click "Start AI Analysis" button to analyze this data</div>
+                                </div>
+                              `}
+                          </div>
+
+                          ${item.link ? `<div style="margin-top: 12px;"><a href="${item.link}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 0.9rem;">🔗 Read Full Article</a></div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -552,6 +677,98 @@
             };
             return sportNames[sport] || 'Sports';
         }
+
+        async function startAIAnalysis() {
+            try {
+                showLoading();
+                showStatus('🤖 Starting AI analysis process... (watch terminal for live output)');
+
+                // Start AI analysis process
+                const response = await fetch('/api/ai/analyze', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                showStatus(result.message || 'AI analysis started successfully');
+                hideLoading();
+
+                // Show instructions to user
+                showStatus('✅ AI analysis is now running! Watch your terminal/console for live output. This may take several minutes.', 'info');
+
+            } catch (error) {
+                console.error('Error starting AI analysis:', error);
+                showError(`Failed to start AI analysis: ${error.message}`);
+                hideLoading();
+            }
+        }
+
+        function toggleAIDetails(itemId) {
+            const detailsElement = document.getElementById(`ai-details-${itemId}`);
+            const button = detailsElement.previousElementSibling.querySelector('button');
+
+            if (detailsElement.style.display === 'none') {
+                detailsElement.style.display = 'block';
+                button.textContent = 'Hide Detailed AI Analysis';
+            } else {
+                detailsElement.style.display = 'none';
+                button.textContent = 'Show Detailed AI Analysis';
+            }
+        }
+
+        async function checkRSSStatus() {
+            try {
+                showStatus('Checking RSS file status...');
+
+                const response = await fetch('/api/rss/status');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const status = await response.json();
+                console.log('RSS Status:', status);
+
+                let statusMessage = 'RSS Files Status:\n';
+                Object.keys(status.files).forEach(key => {
+                    const file = status.files[key];
+                    if (file.exists) {
+                        statusMessage += `✅ ${key}: ${file.size} bytes (${file.modified})\n`;
+                    } else {
+                        statusMessage += `❌ ${key}: Not found\n`;
+                    }
+                });
+
+                showStatus(statusMessage, 'info');
+
+            } catch (error) {
+                console.error('Error checking RSS status:', error);
+                showError(`Failed to check RSS status: ${error.message}`);
+            }
+        }
+
+                 function toggleDetails(itemId) {
+             const detailsDiv = document.getElementById(`details-${itemId}`);
+             if (detailsDiv.style.display === 'none') {
+                 detailsDiv.style.display = 'block';
+             } else {
+                 detailsDiv.style.display = 'none';
+             }
+         }
+
+         function toggleEmojiStats(itemId) {
+             const emojiStatsDiv = document.getElementById(`emoji-stats-${itemId}`);
+             if (emojiStatsDiv.style.display === 'none') {
+                 emojiStatsDiv.style.display = 'block';
+             } else {
+                 emojiStatsDiv.style.display = 'none';
+             }
+         }
     </script>
 </body>
 </html>

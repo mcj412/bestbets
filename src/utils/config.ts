@@ -29,6 +29,7 @@ const envSchema = z.object({
 
   // API Keys
   SPORTS_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 
   // Logging
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
@@ -65,6 +66,7 @@ export const config = {
   },
   api: {
     sportsApiKey: env.SPORTS_API_KEY,
+    geminiApiKey: env.GEMINI_API_KEY,
   },
   logging: {
     level: env.LOG_LEVEL,

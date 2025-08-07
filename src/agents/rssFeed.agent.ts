@@ -12,6 +12,8 @@ export interface RSSFeedItem {
   description: string;
   pubDate: string;
   category?: string;
+  odds?: any; // Add structured odds data
+  aiAnalysis?: any; // Add AI analysis data
 }
 
 export interface RSSFeedData {
@@ -44,7 +46,75 @@ class RSSFeedAgent {
     try {
       logger.info('Reading enhanced RSS feed with odds data...');
 
-      // Read from the enhanced JSON file with odds data
+      // First, try to read from AI-enhanced data if available
+      const aiDataPath = path.join(__dirname, '../../ai_enhanced_sports_data.json');
+      if (fs.existsSync(aiDataPath)) {
+        logger.info('Found AI-enhanced data, using that instead...');
+        const aiContent = fs.readFileSync(aiDataPath, 'utf8');
+        const aiData = JSON.parse(aiContent);
+
+        // Convert AI-enhanced data to RSSFeedData format
+        const items: RSSFeedItem[] = [];
+
+        if (aiData.articles) {
+          aiData.articles.forEach((article: any) => {
+            // Create RSS item from AI-enhanced article
+            const rssItem: RSSFeedItem = {
+              title: article.title,
+              link: article.link,
+              description: article.description || '',
+              pubDate: article.pubDate,
+              category: article.category,
+              odds: article.oddsData ? this.parseOddsData(article.oddsData, article.title) : undefined,
+              aiAnalysis: article.aiAnalysis // Add AI analysis to the item
+            };
+
+            // Add AI analysis to the description if available
+            if (article.aiAnalysis) {
+              let enhancedDescription = rssItem.description;
+
+              // Add AI insights
+              if (article.aiAnalysis.keyInsights && article.aiAnalysis.keyInsights.length > 0) {
+                enhancedDescription += `\n\n🤖 **AI Insights:**`;
+                article.aiAnalysis.keyInsights.forEach((insight: string) => {
+                  enhancedDescription += `\n• ${insight}`;
+                });
+              }
+
+              // Add confidence and risk assessment
+              enhancedDescription += `\n\n📊 **AI Confidence:** ${article.aiAnalysis.confidencePercentage}%`;
+              enhancedDescription += `\n⚠️ **Risk Level:** ${article.aiAnalysis.riskAssessment}`;
+
+              // Add general consensus
+              if (article.aiAnalysis.generalConsensus) {
+                enhancedDescription += `\n\n🎯 **Market Consensus:** ${article.aiAnalysis.generalConsensus}`;
+              }
+
+              // Add black swan events
+              if (article.aiAnalysis.blackSwanEvents && article.aiAnalysis.blackSwanEvents.length > 0) {
+                enhancedDescription += `\n\n⚡ **Black Swan Events:**`;
+                article.aiAnalysis.blackSwanEvents.forEach((event: string) => {
+                  enhancedDescription += `\n• ${event}`;
+                });
+              }
+
+              rssItem.description = enhancedDescription;
+            }
+
+            items.push(rssItem);
+          });
+        }
+
+        return {
+          title: 'AI-Enhanced Sports Data',
+          description: `AI-analyzed sports betting data with ${items.length} articles`,
+          link: 'https://www.oddsshark.com/rss.xml',
+          items: items,
+          lastUpdated: aiData.lastAIUpdate || new Date().toISOString()
+        };
+      }
+
+      // Fallback to regular enhanced RSS data
       const filePath = path.join(__dirname, '../../rss_with_odds.json');
 
       if (!fs.existsSync(filePath)) {
@@ -63,27 +133,53 @@ class RSSFeedAgent {
           const rssItem = article.rssItem;
           const oddsData = article.oddsData;
 
-          // Create enhanced description with odds information
+          // Parse the odds data into clean, structured format
+          const parsedOdds = this.parseOddsData(oddsData, rssItem.title);
+
+          // Create enhanced description with clean odds information
           let enhancedDescription = rssItem.description || '';
 
-          if (oddsData.tables && oddsData.tables.length > 0) {
-            enhancedDescription += '\n\n📊 Odds Tables Found:';
-            oddsData.tables.forEach((table: any, index: number) => {
-              enhancedDescription += `\nTable ${index + 1}: ${table.headers.join(' | ')}`;
-              if (table.rows.length > 0) {
-                enhancedDescription += `\n${table.rows.slice(0, 3).map((row: any) => row.join(' | ')).join('\n')}`;
-                if (table.rows.length > 3) {
-                  enhancedDescription += `\n... and ${table.rows.length - 3} more rows`;
-                }
-              }
+          if (parsedOdds.teams.length > 0) {
+            enhancedDescription += `\n\n🏈 **Teams:** ${parsedOdds.teams.join(' vs ')}`;
+          }
+
+          if (parsedOdds.spread && parsedOdds.spread.length > 0) {
+            enhancedDescription += `\n📏 **Spread:** ${parsedOdds.spread.map((sp: any) => `${sp.team} ${sp.line} (${sp.odds})`).join(', ')}`;
+          }
+
+          if (parsedOdds.moneyline && parsedOdds.moneyline.length > 0) {
+            enhancedDescription += `\n💰 **Moneyline:** ${parsedOdds.moneyline.map((ml: any) => `${ml.team} ${ml.odds}`).join(', ')}`;
+          }
+
+          if (parsedOdds.total) {
+            enhancedDescription += `\n📊 **Total:** ${parsedOdds.total.line} (Over: ${parsedOdds.total.over}, Under: ${parsedOdds.total.under})`;
+          }
+
+          if (parsedOdds.playerProps && parsedOdds.playerProps.length > 0) {
+            enhancedDescription += `\n👤 **Player Props:**`;
+            parsedOdds.playerProps.slice(0, 5).forEach((prop: any) => {
+              enhancedDescription += `\n   • ${prop.player}: ${prop.odds}`;
+            });
+            if (parsedOdds.playerProps.length > 5) {
+              enhancedDescription += `\n   ... and ${parsedOdds.playerProps.length - 5} more`;
+            }
+          }
+
+          if (parsedOdds.fighters && parsedOdds.fighters.length > 0) {
+            enhancedDescription += `\n🥊 **Fighters:**`;
+            parsedOdds.fighters.forEach((fighter: any) => {
+              enhancedDescription += `\n   • ${fighter.name}: ${fighter.odds}`;
             });
           }
 
+          // Add summary of tables found
+          if (oddsData.tables && oddsData.tables.length > 0) {
+            enhancedDescription += `\n\n📋 **Data Tables:** ${oddsData.tables.length} table(s) extracted`;
+          }
+
+          // Add summary of odds patterns
           if (oddsData.odds && oddsData.odds.length > 0) {
-            enhancedDescription += `\n\n🎯 Odds Patterns: ${oddsData.odds.slice(0, 10).join(', ')}`;
-            if (oddsData.odds.length > 10) {
-              enhancedDescription += ` (and ${oddsData.odds.length - 10} more)`;
-            }
+            enhancedDescription += `\n🎯 **Odds Found:** ${oddsData.odds.length} odds patterns detected`;
           }
 
           items.push({
@@ -91,7 +187,8 @@ class RSSFeedAgent {
             link: rssItem.link,
             description: enhancedDescription,
             pubDate: rssItem.pubDate,
-            category: rssItem.category || 'Enhanced with Odds'
+            category: rssItem.category || 'Enhanced with Odds',
+            odds: parsedOdds // Include the structured odds data
           });
         });
       } else if (enhancedData.items) {
@@ -110,6 +207,193 @@ class RSSFeedAgent {
       logger.error('Failed to read enhanced RSS feed:', error);
       throw error;
     }
+  }
+
+  private parseOddsData(oddsData: any, articleTitle: string): any {
+    const result: {
+      teams: string[];
+      spread: Array<{team: string; line: string; odds: string}>;
+      moneyline: Array<{team: string; odds: string}>;
+      total: {over: string; under: string; line: string} | null;
+      playerProps: Array<{player: string; team: string; prop: string; odds: string}>;
+      fighters: Array<{name: string; odds: string}>;
+      keyOdds: Array<{type: string; description: string; value: string}>;
+    } = {
+      teams: [],
+      spread: [],
+      moneyline: [],
+      total: null,
+      playerProps: [],
+      fighters: [],
+      keyOdds: []
+    };
+
+    try {
+      // Extract teams from article title
+      const title = articleTitle.toLowerCase();
+
+      // Common team patterns
+      const teamPatterns = {
+        // NFL Teams
+        'patriots': 'Patriots', 'commanders': 'Commanders', 'bengals': 'Bengals', 'eagles': 'Eagles',
+        'chiefs': 'Chiefs', 'bills': 'Bills', '49ers': '49ers', 'cowboys': 'Cowboys',
+        'packers': 'Packers', 'lions': 'Lions', 'jets': 'Jets', 'dolphins': 'Dolphins',
+        'steelers': 'Steelers', 'browns': 'Browns', 'ravens': 'Ravens',
+        'titans': 'Titans', 'jaguars': 'Jaguars', 'colts': 'Colts', 'texans': 'Texans',
+        'broncos': 'Broncos', 'raiders': 'Raiders', 'chargers': 'Chargers',
+        'cardinals': 'Cardinals', 'rams': 'Rams', 'seahawks': 'Seahawks', 'falcons': 'Falcons',
+        'panthers': 'Panthers', 'saints': 'Saints', 'buccaneers': 'Buccaneers', 'vikings': 'Vikings',
+        'bears': 'Bears', 'giants': 'Giants', 'washington': 'Commanders',
+
+        // NBA Teams
+        'lakers': 'Lakers', 'celtics': 'Celtics', 'warriors': 'Warriors', 'heat': 'Heat',
+        'bulls': 'Bulls', 'knicks': 'Knicks', 'suns': 'Suns', 'mavericks': 'Mavericks',
+        'bucks': 'Bucks', '76ers': '76ers', 'nets': 'Nets', 'clippers': 'Clippers',
+        'nuggets': 'Nuggets', 'jazz': 'Jazz', 'trail blazers': 'Trail Blazers',
+        'thunder': 'Thunder', 'pelicans': 'Pelicans', 'kings': 'Kings',
+        'timberwolves': 'Timberwolves', 'rockets': 'Rockets', 'spurs': 'Spurs',
+        'grizzlies': 'Grizzlies', 'magic': 'Magic', 'hawks': 'Hawks',
+        'hornets': 'Hornets', 'pistons': 'Pistons', 'pacers': 'Pacers',
+        'cavaliers': 'Cavaliers', 'raptors': 'Raptors', 'wizards': 'Wizards'
+      };
+
+      // Find teams in title
+      for (const [pattern, name] of Object.entries(teamPatterns)) {
+        if (title.includes(pattern) && !result.teams.includes(name)) {
+          result.teams.push(name);
+        }
+      }
+
+      // Parse tables for odds
+      if (oddsData.tables && oddsData.tables.length > 0) {
+        oddsData.tables.forEach((table: any) => {
+          // Look for spread/moneyline/total table
+          if (table.headers.some((h: string) => h.toLowerCase().includes('spread'))) {
+            table.rows.forEach((row: any) => {
+              if (row.length >= 4) {
+                const team = row[0];
+                const spread = row[1];
+                const moneyline = row[2];
+                const total = row[3];
+
+                if (spread && spread !== 'Spread' && spread !== '') {
+                  // Extract spread line and odds
+                  const spreadMatch = spread.match(/([+-]\d+\.?\d*)\s*\(([+-]\d+)\)/);
+                  if (spreadMatch) {
+                    result.spread.push({
+                      team: team,
+                      line: spreadMatch[1],
+                      odds: spreadMatch[2]
+                    });
+                    result.keyOdds.push({
+                      type: 'Spread',
+                      description: `${team} ${spreadMatch[1]}`,
+                      value: spreadMatch[2]
+                    });
+                  }
+                }
+
+                if (moneyline && moneyline !== 'Moneyline' && moneyline !== '') {
+                  result.moneyline.push({
+                    team: team,
+                    odds: moneyline
+                  });
+                  result.keyOdds.push({
+                    type: 'Moneyline',
+                    description: team,
+                    value: moneyline
+                  });
+                }
+
+                if (total && total !== 'Total' && total !== '') {
+                  // Extract over/under from total
+                  const totalMatch = total.match(/(\d+\.?\d*)/);
+                  if (totalMatch) {
+                    result.total = {
+                      over: '(-110)', // Default odds
+                      under: '(-110)', // Default odds
+                      line: totalMatch[1]
+                    };
+                    result.keyOdds.push({
+                      type: 'Total',
+                      description: `O/U ${totalMatch[1]}`,
+                      value: 'Over: (-110), Under: (-110)'
+                    });
+                  }
+                }
+              }
+            });
+          }
+
+          // Look for fighter odds table
+          if (table.headers.some((h: string) => h.toLowerCase().includes('fighter'))) {
+            table.rows.forEach((row: any) => {
+              if (row.length >= 2) {
+                result.fighters.push({
+                  name: row[0],
+                  odds: row[1]
+                });
+              }
+            });
+          }
+
+          // Look for player props table
+          if (table.headers.some((h: string) => h.toLowerCase().includes('player'))) {
+            table.rows.forEach((row: any) => {
+              if (row.length >= 3) {
+                result.playerProps.push({
+                  player: row[0],
+                  team: row[1],
+                  prop: 'Points', // Default prop type
+                  odds: row[2]
+                });
+              }
+            });
+          }
+        });
+      }
+
+      // If no structured data found, try to extract from odds patterns
+      if (result.moneyline.length === 0 && oddsData.odds && oddsData.odds.length >= 2) {
+        const moneylines = oddsData.odds.filter((odd: string) =>
+          /^[+-]\d{3,4}$/.test(odd) || /^[+-]\d{1,2}$/.test(odd)
+        );
+        if (moneylines.length >= 2) {
+          // Try to associate moneyline values with teams
+          if (result.teams.length >= 2) {
+            result.moneyline.push(
+              { team: result.teams[0] || 'Team 1', odds: moneylines[0] },
+              { team: result.teams[1] || 'Team 2', odds: moneylines[1] }
+            );
+            result.keyOdds.push(
+              { type: 'Moneyline', description: result.teams[0] || 'Team 1', value: moneylines[0] },
+              { type: 'Moneyline', description: result.teams[1] || 'Team 2', value: moneylines[1] }
+            );
+          } else if (result.fighters.length >= 2) {
+            result.moneyline.push(
+              { team: (result.fighters[0] && result.fighters[0].name) || 'Fighter 1', odds: moneylines[0] },
+              { team: (result.fighters[1] && result.fighters[1].name) || 'Fighter 2', odds: moneylines[1] }
+            );
+          } else if (result.playerProps.length >= 2) {
+            result.moneyline.push(
+              { team: (result.playerProps[0] && result.playerProps[0].player) || 'Player 1', odds: moneylines[0] },
+              { team: (result.playerProps[1] && result.playerProps[1].player) || 'Player 2', odds: moneylines[1] }
+            );
+          } else {
+            // Fallback to just the values if no names available
+            result.moneyline.push(
+              { team: 'Team 1', odds: moneylines[0] },
+              { team: 'Team 2', odds: moneylines[1] }
+            );
+          }
+        }
+      }
+
+    } catch (error) {
+      logger.error('Error parsing odds data:', error);
+    }
+
+    return result;
   }
 
   private async getRSSWithPuppeteer(): Promise<string | null> {

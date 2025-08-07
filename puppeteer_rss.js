@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const { saveComprehensiveData } = require('./save_comprehensive_data.js');
 
 // Function to decode HTML entities
 function decodeHtmlEntities(text) {
@@ -105,32 +106,149 @@ async function extractOddsFromArticle(page, articleUrl) {
         // Wait for content to load
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Extract odds data from various table formats
+        // Extract comprehensive data from article
         const oddsData = await page.evaluate(() => {
             const data = {
                 title: document.title,
                 url: window.location.href,
                 odds: [],
                 tables: [],
-                text: ''
+                text: '',
+                fullContent: {
+                    paragraphs: [],
+                    headings: [],
+                    lists: [],
+                    bettingTrends: [],
+                    picks: [],
+                    analysis: [],
+                    keyInsights: []
+                }
             };
 
-            // Get main content text
+            // Get main content text - expanded to capture everything
             const contentSelectors = [
                 '.field--name-body',
                 '.article-content',
                 '.content-body',
                 'article',
-                '.main-content'
+                '.main-content',
+                '.post-content',
+                '.entry-content',
+                '.content',
+                'main',
+                '.story-content',
+                '[role="main"]',
+                '.article-body',
+                '.post-body'
             ];
 
+            let mainContent = '';
             for (const selector of contentSelectors) {
                 const element = document.querySelector(selector);
                 if (element) {
-                    data.text = element.textContent.trim();
+                    mainContent = element.textContent || '';
                     break;
                 }
             }
+
+            // If no main content found, get body text
+            if (!mainContent) {
+                mainContent = document.body.textContent || '';
+            }
+
+            data.text = mainContent;
+
+            // Extract all paragraphs
+            const paragraphs = document.querySelectorAll('p');
+            paragraphs.forEach(p => {
+                const text = p.textContent?.trim();
+                if (text && text.length > 20) {
+                    data.fullContent.paragraphs.push(text);
+                }
+            });
+
+            // Extract all headings
+            const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            headings.forEach(h => {
+                const text = h.textContent?.trim();
+                if (text && text.length > 0) {
+                    data.fullContent.headings.push({
+                        level: h.tagName.toLowerCase(),
+                        text: text
+                    });
+                }
+            });
+
+            // Extract lists
+            const lists = document.querySelectorAll('ul, ol');
+            lists.forEach(list => {
+                const items = Array.from(list.querySelectorAll('li')).map(li => li.textContent?.trim()).filter(Boolean);
+                if (items.length > 0) {
+                    data.fullContent.lists.push(items);
+                }
+            });
+
+            // Look for betting trends and picks (common patterns)
+            const allText = mainContent.toLowerCase();
+
+            // Extract betting trends
+            const trendPatterns = [
+                /betting trends?[:\s]+([^.!?]+)/gi,
+                /trends?[:\s]+([^.!?]+)/gi,
+                /(?:the|this).*?(?:trend|pattern)[:\s]+([^.!?]+)/gi,
+                /(?:over|under).*?(?:trend|record)[:\s]+([^.!?]+)/gi
+            ];
+
+            trendPatterns.forEach(pattern => {
+                const matches = allText.match(pattern);
+                if (matches) {
+                    data.fullContent.bettingTrends.push(...matches.map(m => m.trim()));
+                }
+            });
+
+            // Extract picks
+            const pickPatterns = [
+                /(?:our|the|best|top).*?pick[:\s]+([^.!?]+)/gi,
+                /pick[:\s]+([^.!?]+)/gi,
+                /(?:recommend|suggest|bet).*?([^.!?]+)/gi,
+                /(?:prediction|forecast)[:\s]+([^.!?]+)/gi
+            ];
+
+            pickPatterns.forEach(pattern => {
+                const matches = allText.match(pattern);
+                if (matches) {
+                    data.fullContent.picks.push(...matches.map(m => m.trim()));
+                }
+            });
+
+            // Extract analysis
+            const analysisPatterns = [
+                /analysis[:\s]+([^.!?]+)/gi,
+                /(?:key|important).*?(?:point|factor)[:\s]+([^.!?]+)/gi,
+                /(?:why|because|since).*?([^.!?]+)/gi,
+                /(?:consider|note|remember).*?([^.!?]+)/gi
+            ];
+
+            analysisPatterns.forEach(pattern => {
+                const matches = allText.match(pattern);
+                if (matches) {
+                    data.fullContent.analysis.push(...matches.map(m => m.trim()));
+                }
+            });
+
+            // Extract key insights
+            const insightPatterns = [
+                /(?:key|important|main).*?(?:insight|takeaway)[:\s]+([^.!?]+)/gi,
+                /(?:bottom line|conclusion)[:\s]+([^.!?]+)/gi,
+                /(?:summary|overview)[:\s]+([^.!?]+)/gi
+            ];
+
+            insightPatterns.forEach(pattern => {
+                const matches = allText.match(pattern);
+                if (matches) {
+                    data.fullContent.keyInsights.push(...matches.map(m => m.trim()));
+                }
+            });
 
             // Extract all tables
             const tables = document.querySelectorAll('table');
@@ -147,9 +265,22 @@ async function extractOddsFromArticle(page, articleUrl) {
                     tableData.headers.push(header.textContent.trim());
                 });
 
+                // If no th elements, use first row as headers
+                if (tableData.headers.length === 0) {
+                    const firstRow = table.querySelector('tr');
+                    if (firstRow) {
+                        const cells = firstRow.querySelectorAll('td');
+                        cells.forEach(cell => {
+                            tableData.headers.push(cell.textContent.trim());
+                        });
+                    }
+                }
+
                 // Get rows
                 const rows = table.querySelectorAll('tr');
-                rows.forEach(row => {
+                rows.forEach((row, rowIndex) => {
+                    if (rowIndex === 0 && tableData.headers.length > 0) return; // Skip header row
+
                     const cells = row.querySelectorAll('td');
                     if (cells.length > 0) {
                         const rowData = [];
@@ -160,7 +291,9 @@ async function extractOddsFromArticle(page, articleUrl) {
                     }
                 });
 
-                data.tables.push(tableData);
+                if (tableData.headers.length > 0 || tableData.rows.length > 0) {
+                    data.tables.push(tableData);
+                }
             });
 
             // Look for odds patterns in text
@@ -201,7 +334,7 @@ async function getRSSWithPuppeteer() {
     console.log('Starting Puppeteer to bypass AWS WAF and extract odds data...');
 
     const browser = await puppeteer.launch({
-        headless: false, // Set to true if you don't want to see the browser
+        headless: true, // Run headless for server execution
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -209,7 +342,9 @@ async function getRSSWithPuppeteer() {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
         ]
     });
 
@@ -289,12 +424,19 @@ async function getRSSWithPuppeteer() {
             fs.writeFileSync('rss_with_odds.json', JSON.stringify(enhancedData, null, 2));
             console.log('✅ Saved enhanced data with odds to rss_with_odds.json');
 
+            // Save comprehensive data for AI interpretation
+            saveComprehensiveData(enhancedData);
+
             // Show summary
             console.log('\n📊 Summary of extracted odds:');
             articlesWithOdds.forEach((article, index) => {
                 console.log(`${index + 1}. ${article.rssItem.title}`);
                 console.log(`   Tables found: ${article.oddsData.tables.length}`);
                 console.log(`   Odds patterns: ${article.oddsData.odds.length}`);
+                console.log(`   Content sections: ${Object.keys(article.oddsData.fullContent || {}).length}`);
+                console.log(`   Paragraphs: ${article.oddsData.fullContent?.paragraphs?.length || 0}`);
+                console.log(`   Trends found: ${article.oddsData.fullContent?.bettingTrends?.length || 0}`);
+                console.log(`   Picks found: ${article.oddsData.fullContent?.picks?.length || 0}`);
                 console.log(`   URL: ${article.rssItem.link}`);
                 console.log('');
             });
@@ -358,9 +500,15 @@ async function getRSSWithPuppeteer() {
 
     } catch (error) {
         console.error('❌ Error:', error);
+        console.error('Error stack:', error.stack);
         return null;
     } finally {
-        await browser.close();
+        try {
+            await browser.close();
+            console.log('✅ Browser closed successfully');
+        } catch (closeError) {
+            console.error('❌ Error closing browser:', closeError);
+        }
     }
 }
 

@@ -4,14 +4,16 @@
   "description": "Sports Odds Detection System",
   "main": "src/app.ts",
   "scripts": {
-    "dev": "nodemon src/app.ts",
+    "dev": "nodemon --config nodemon.json",
     "build": "tsc",
     "start": "node dist/app.js",
+    "tunnel": "ngrok http 3000",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "axios": "^1.6.0",
     "bullmq": "^4.12.0",
     "compression": "^1.7.4",

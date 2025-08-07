@@ -81,6 +81,64 @@ app.get('/api/odds/:sportKey?', async (req, res) => {
 });
 
 // RSS Feed Routes
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({
+    status: 'Server is running',
+    timestamp: new Date().toISOString(),
+    message: 'Server is ready to process requests'
+  });
+});
+
+// Status endpoint to check RSS files
+app.get('/api/rss/status', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+
+  try {
+    const files: Record<string, boolean> = {
+      rss_puppeteer: fs.existsSync('rss_puppeteer.xml'),
+      rss_decoded: fs.existsSync('rss_decoded.xml'),
+      rss_parsed: fs.existsSync('rss_parsed.json'),
+      rss_with_odds: fs.existsSync('rss_with_odds.json'),
+      comprehensive_sports_data: fs.existsSync('comprehensive_sports_data.json'),
+      ai_enhanced_sports_data: fs.existsSync('ai_enhanced_sports_data.json')
+    };
+
+    const stats: Record<string, any> = {};
+    Object.keys(files).forEach(key => {
+      if (files[key]) {
+        const filePath = key === 'rss_puppeteer' ? 'rss_puppeteer.xml' :
+                        key === 'rss_decoded' ? 'rss_decoded.xml' :
+                        key === 'rss_parsed' ? 'rss_parsed.json' :
+                        key === 'rss_with_odds' ? 'rss_with_odds.json' :
+                        key === 'comprehensive_sports_data' ? 'comprehensive_sports_data.json' :
+                        'ai_enhanced_sports_data.json';
+        const stat = fs.statSync(filePath);
+        stats[key] = {
+          exists: true,
+          size: stat.size,
+          modified: stat.mtime.toISOString()
+        };
+      } else {
+        stats[key] = { exists: false };
+      }
+    });
+
+    res.json({
+      status: 'RSS files status',
+      timestamp: new Date().toISOString(),
+      files: stats
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({
+      error: 'Failed to check RSS files',
+      details: errorMessage
+    });
+  }
+});
+
 app.get('/api/rss/feed', async (req, res) => {
   try {
     const feedData = await rssFeedAgent.getRSSFeed();
@@ -103,47 +161,46 @@ app.get('/api/rss/save-to-file', async (req, res) => {
 
 app.get('/api/rss/update', async (req, res) => {
   try {
-    logger.info('Running standalone Puppeteer script to pull RSS data...');
+    logger.info('Starting Puppeteer process...');
 
-    // Run the standalone puppeteer_rss.js script
-    const { exec } = require('child_process');
+    // Immediately respond to the client
+    res.json({
+      success: true,
+      message: 'Puppeteer process started successfully',
+      note: 'Check terminal for progress. Use "Check RSS Status" button to see when files are ready.'
+    });
+
+    // Then start Puppeteer in the background
+    const { spawn } = require('child_process');
     const path = require('path');
     const scriptPath = path.join(__dirname, '../puppeteer_rss.js');
 
     logger.info(`Executing script: ${scriptPath}`);
 
-    exec(`node "${scriptPath}"`, (error: any, stdout: any, stderr: any) => {
-      if (error) {
-        logger.error('Error running Puppeteer script:', error);
-        res.status(500).json({ 
-          error: 'Failed to run Puppeteer script', 
-          details: error.message,
-          code: error.code 
-        });
-        return;
+    // Use spawn without detaching so we can see output
+    const child = spawn('node', [scriptPath], {
+      stdio: 'inherit', // This will show all output in the terminal
+      windowsHide: false // Show console window on Windows
+    });
+
+    // Handle completion
+    child.on('close', (code: number) => {
+      logger.info(`Puppeteer process completed with code ${code}`);
+      if (code === 0) {
+        logger.info('✅ Puppeteer completed successfully');
+      } else {
+        logger.error(`❌ Puppeteer failed with code: ${code}`);
       }
+    });
 
-      if (stderr) {
-        logger.warn('Puppeteer script stderr:', stderr);
-      }
-
-      logger.info('Puppeteer script completed successfully');
-      logger.info('Script output:', stdout);
-
-      res.json({ 
-        success: true, 
-        message: 'RSS feed updated successfully',
-        output: stdout.substring(0, 500) + '...' // Truncate long output
-      });
+    // Handle errors
+    child.on('error', (error: any) => {
+      logger.error('Child process error:', error);
     });
 
   } catch (error) {
-    logger.error('Failed to update RSS feed:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ 
-      error: 'Failed to update RSS feed', 
-      details: errorMessage 
-    });
+    logger.error('Failed to start Puppeteer:', error);
+    // Don't send error response since we already sent success
   }
 });
 
@@ -165,6 +222,74 @@ app.get('/api/rss/schedule/:sportKey?', async (req, res) => {
   } catch (error) {
     logger.error('Failed to fetch RSS schedule:', error);
     res.status(500).json({ error: 'Failed to fetch RSS schedule' });
+  }
+});
+
+// AI Analysis endpoint
+app.get('/api/ai/analyze', async (req, res) => {
+  try {
+    logger.info('Starting AI analysis process...');
+
+    // Immediately respond to the client
+    res.json({
+      success: true,
+      message: 'AI analysis process started successfully',
+      note: 'Check terminal for progress. This may take several minutes.'
+    });
+
+    // Then start AI analysis in the background
+    const { spawn } = require('child_process');
+    const path = require('path');
+    const scriptPath = path.join(__dirname, '../ai_analysis_processor.js');
+
+    logger.info(`Executing AI analysis script: ${scriptPath}`);
+
+    // Use spawn without detaching so we can see output
+    const child = spawn('node', [scriptPath], {
+      stdio: 'inherit', // This will show all output in the terminal
+      windowsHide: false // Show console window on Windows
+    });
+
+    // Handle completion
+    child.on('close', (code: number) => {
+      logger.info(`AI analysis process completed with code ${code}`);
+      if (code === 0) {
+        logger.info('✅ AI analysis completed successfully');
+      } else {
+        logger.error(`❌ AI analysis failed with code: ${code}`);
+      }
+    });
+
+    // Handle errors
+    child.on('error', (error: any) => {
+      logger.error('AI analysis child process error:', error);
+    });
+
+  } catch (error) {
+    logger.error('Failed to start AI analysis:', error);
+    // Don't send error response since we already sent success
+  }
+});
+
+// Get AI-enhanced data
+app.get('/api/ai/data', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const aiDataPath = path.join(__dirname, '../ai_enhanced_sports_data.json');
+
+    if (!fs.existsSync(aiDataPath)) {
+      return res.status(404).json({
+        error: 'AI-enhanced data not found. Run AI analysis first.',
+        note: 'Use /api/ai/analyze to start AI analysis'
+      });
+    }
+
+    const aiData = JSON.parse(fs.readFileSync(aiDataPath, 'utf8'));
+    return res.json(aiData);
+  } catch (error) {
+    logger.error('Failed to fetch AI-enhanced data:', error);
+    return res.status(500).json({ error: 'Failed to fetch AI-enhanced data' });
   }
 });
 
